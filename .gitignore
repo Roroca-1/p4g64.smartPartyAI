@@ -1,0 +1,9 @@
+bin/
+obj/
+Tests/bin/
+Tests/obj/
+releases/
+.vs/
+*.user
+*.suo
+Config.json

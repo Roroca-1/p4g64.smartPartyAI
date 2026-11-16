@@ -1,0 +1,53 @@
+{
+  "ModId": "p4g64.smartPartyAI",
+  "ModName": "Smart Party AI Overhaul",
+  "ModAuthor": "Kanasara & Lyra",
+  "ModVersion": "1.0.0",
+  "ModDescription": "Overhauls party AI tactics (Full Assault, Conserve SP, Heal/Support, Act Freely) with true SKILL.TBL damage & multi-hit calculation, 1-More 2-step lookahead, AoE group optimization, strict Wall/Karn/Shield/block awareness, and smart boss telegraph & weakness guarding.",
+  "ModDll": "p4g64.smartPartyAI.dll",
+  "ModIcon": "Preview.png",
+  "ModR2RManagedDll32": "",
+  "ModR2RManagedDll64": "",
+  "ModNativeDll32": "",
+  "ModNativeDll64": "",
+  "Tags": [
+    "AI",
+    "Combat",
+    "Tactics",
+    "Quality of Life"
+  ],
+  "CanUnload": false,
+  "HasExports": false,
+  "IsLibrary": false,
+  "ReleaseMetadataFileName": "p4g64.smartPartyAI.ReleaseMetadata.json",
+  "PluginData": {
+    "GitHubDependencies": {
+      "IdToConfigMap": {
+        "reloaded.sharedlib.hooks": {
+          "Config": {
+            "UserName": "Sewer56",
+            "RepositoryName": "Reloaded.SharedLib.Hooks.ReloadedII",
+            "UseReleaseTag": true,
+            "AssetFileName": "reloaded.sharedlib.hooks.zip"
+          },
+          "ReleaseMetadataName": "Sewer56.Update.ReleaseMetadata.json"
+        }
+      }
+    },
+    "GitHubRelease": {
+      "UserName": "Roroca-1",
+      "RepositoryName": "p4g64.smartPartyAI",
+      "UseReleaseTag": true,
+      "AssetFileName": "p4g64.smartPartyAI1.0.0.zip"
+    }
+  },
+  "IsUniversalMod": false,
+  "ModDependencies": [
+    "reloaded.sharedlib.hooks"
+  ],
+  "OptionalDependencies": [],
+  "SupportedAppId": [
+    "p4g.exe"
+  ],
+  "ProjectUrl": "https://github.com/Roroca-1/p4g64.smartPartyAI"
+}
