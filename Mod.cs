@@ -111,8 +111,8 @@ public unsafe class Mod : IModV2
             return;
 
         uint stateFlags = *(uint*)(combatant + P4GNative.OffCombStateFlags);
-        // Do not override loss-of-control ailments (Dead=0x80000, Charm=0x100, Confuse=0x80, Fear=0x40, Rage=0x04)
-        if ((stateFlags & 0x801C4) != 0)
+        // Do not override loss-of-control ailments (Dead=0x80000, Charm=0x100, Enervate=0x80, Confuse=0x10, Fear=0x04, Rage=0x02)
+        if ((stateFlags & 0x80196) != 0)
             return;
 
         ushort vanillaActionType = *(ushort*)(unitPtr + P4GNative.OffUnitActionType);
@@ -140,6 +140,10 @@ public unsafe class Mod : IModV2
         catch (Exception ex)
         {
             _logger.WriteLine($"[SmartPartyAI] Exception during AI override: {ex}", Color.OrangeRed);
+        }
+        finally
+        {
+            _bridge.ClearTurnCache();
         }
     }
 

@@ -22,6 +22,7 @@ public static class SkillCatalog
     public const uint BuffDekaja = 0x00001000;
     public const uint BuffDekunda = 0x00002000;
     public const uint BuffCritRateUp = 0x00004000;
+    public const uint BuffRevolutionCritUp = 0x00008000;
     public const uint BuffPowerCharge = 0x00000400;
     public const uint BuffMindCharge = 0x00000800;
     public const uint BuffTetrakarn = 0x00010000;
@@ -72,8 +73,20 @@ public static class SkillCatalog
         return low == 0xFFu ? 0x1FFu : low;
     }
 
+    /// <summary>
+    /// Identifies P4G story bosses, superbosses, and dungeon mini-bosses (verified via ENCOUNT.TBL and UNIT.TBL)
+    /// that are immune to Hama/Mudo instant death and status ailments.
+    /// </summary>
     public static bool IsKnownBossUnitId(ushort enemyId) =>
-        enemyId is 266 or 268 or 271 or 276 or 279 or 282 or 284 or 286;
+        (enemyId >= 256 && enemyId <= 278 && enemyId != 268) ||
+        (enemyId >= 288 && enemyId <= 297) ||
+        (enemyId >= 304 && enemyId <= 319);
+
+    public static bool IsDamageAmplifyingAilment(uint ailmentMask) =>
+        (ailmentMask & 0x66u) != 0; // Rage(0x02, 2.0x), Fear(0x04 -> Ghastly Wail), Poison(0x20, bleed), Exhaust(0x40, 1.25x)
+
+    public static bool IsDisablingAilment(uint ailmentMask) =>
+        (ailmentMask & 0xFCu) != 0; // Fear(0x04), Silence(0x08), Confuse(0x10), Poison(0x20), Exhaust(0x40), Enervate(0x80)
 
     /// <summary>
     /// Sign-extends the 8-bit stat stage returned in AL by P4G GetStatStage (0x1400d08c0),
@@ -157,6 +170,23 @@ public static class SkillCatalog
         [75] = "Mamudoon",
         [76] = "Demonic Decree",
         [78] = "Die for Me!",
+        [83] = "Pulinpa",
+        [84] = "Tentarafoo",
+        [85] = "Evil Touch",
+        [86] = "Evil Smile",
+        [87] = "Ghastly Wail",
+        [88] = "Balzac",
+        [89] = "Valiant Dance",
+        [90] = "Poisma",
+        [91] = "Poison Mist",
+        [92] = "Soul Break",
+        [93] = "Anima Freeze",
+        [94] = "Enervation",
+        [95] = "Old One",
+        [96] = "Galgalim Eyes",
+        [97] = "Makajam",
+        [98] = "Foolish Whisper",
+        [99] = "Foul Breath",
         [120] = "Bash",
         [121] = "Cleave",
         [122] = "Power Slash",
@@ -194,6 +224,13 @@ public static class SkillCatalog
         [198] = "Salvation",
         [199] = "Patra",
         [200] = "Me Patra",
+        [201] = "Re Patra",
+        [202] = "Posumudi",
+        [203] = "Mutudi",
+        [204] = "Enradi",
+        [205] = "Tirundi",
+        [206] = "Nervundi",
+        [207] = "Energy Shower",
         [208] = "Amrita",
         [209] = "Recarm",
         [210] = "Samarecarm",

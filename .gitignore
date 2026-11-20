@@ -3,6 +3,8 @@ obj/
 Tests/bin/
 Tests/obj/
 releases/
+coordination/
+AGENTS.md
 .vs/
 *.user
 *.suo

@@ -14,6 +14,12 @@ public class Config : Configurable<Config>
     public bool RespectAnalysisState { get; set; } = true;
 
     [Category("Affinity & Knowledge")]
+    [DisplayName("Probe Unrevealed Elements")]
+    [Description("When Respect Analysis State is enabled, allows AI party members on non-boss enemies to test unrevealed single-target elemental affinities instead of only spamming Physical/highest-power skills.")]
+    [DefaultValue(true)]
+    public bool ProbeUnrevealedElements { get; set; } = true;
+
+    [Category("Affinity & Knowledge")]
     [DisplayName("Smart Telegraph & Weakness Guard")]
     [Description("When enabled, party members automatically Guard (or cast an Elemental Wall) when a boss telegraphs an elemental attack targeting their weakness (e.g. Shadow Yukiko's passionate stare) or a party-wipe ultimate (e.g. Shadow Teddie's Nihil Hand).")]
     [DefaultValue(true)]
@@ -26,10 +32,22 @@ public class Config : Configurable<Config>
     public bool EnableSmartFullAssault { get; set; } = true;
 
     [Category("Tactics Presets")]
+    [DisplayName("Full Assault Offensive Setups")]
+    [Description("Allows Full Assault to cast pure offensive buffs/debuffs (Matarukaja, Rakunda, Marakunda, Debilitate, carry Tarukaja) on tough fights strictly when multi-turn team DPS math predicts higher total damage.")]
+    [DefaultValue(true)]
+    public bool AllowOffensiveBuffsInFullAssault { get; set; } = true;
+
+    [Category("Tactics Presets")]
     [DisplayName("Enable Smart Conserve SP")]
     [Description("Replaces Conserve SP with zero-SP Phys/Attack optimization, safe HP gating, Spirit Drain recovery, and low-cost 1-More/All-Out Attack starters.")]
     [DefaultValue(true)]
     public bool EnableSmartConserveSp { get; set; } = true;
+
+    [Category("Tactics Presets")]
+    [DisplayName("Conserve SP Unanalyzed Probing")]
+    [Description("When SP is healthy (>= 35%), allows Conserve SP to spend a cheap spell (within Low-Cost Starter Max SP) to test an unrevealed affinity on standing non-boss shadows if zero-SP attacks cannot finish the battle cleanly.")]
+    [DefaultValue(true)]
+    public bool ConserveSpProbeUnrevealed { get; set; } = true;
 
     [Category("Tactics Presets")]
     [DisplayName("Enable Smart Heal / Support")]
@@ -90,6 +108,48 @@ public class Config : Configurable<Config>
     [Description("When false, AI preserves rare full-SP consumables (Soul Food, Soma) outside critical high-HP boss fights and only uses partial SP items.")]
     [DefaultValue(false)]
     public bool AllowRareFullSpItems { get; set; } = false;
+
+    [Category("Items & SP Recovery")]
+    [DisplayName("Use Elemental & Fixed-Damage Items")]
+    [Description("Allow AI (especially Act Freely) to throw elemental damage items (e.g., Firecracker, Dry Ice, Pinwheel) to hit revealed enemy weaknesses for free 1 More or All-Out Attacks, bypass immunities, or finish low-HP targets.")]
+    [DefaultValue(true)]
+    public bool EnableDamageItemsInAi { get; set; } = true;
+
+    [Category("Items & SP Recovery")]
+    [DisplayName("Use Healing / Cure / Revive Items")]
+    [Description("Allow Act Freely and Heal/Support party members to use HP, Ailment Cure, and Revive consumables when they lack the needed spell or are Silenced.")]
+    [DefaultValue(true)]
+    public bool EnableSupportItemsInAi { get; set; } = true;
+
+    [Category("Items & SP Recovery")]
+    [DisplayName("Allow Rare Consumables (Bead Chain / Balm / Rare Gems)")]
+    [Description("When false, protects irreplaceable or full-party rare consumables (Balm of Life, Bead Chain, Amrita Soda, top-tier attack items) from automatic AI use.")]
+    [DefaultValue(false)]
+    public bool AllowRareConsumables { get; set; } = false;
+
+    [Category("Items & SP Recovery")]
+    [DisplayName("Probe Unrevealed Enemies With Items")]
+    [Description("When false, the AI never spends finite elemental damage items just to probe unanalyzed affinities (only uses them on revealed weaknesses, kills, or immune targets).")]
+    [DefaultValue(false)]
+    public bool AllowDamageItemProbing { get; set; } = false;
+
+    [Category("Items & SP Recovery")]
+    [DisplayName("Minimum Item Reserve Stock")]
+    [Description("Minimum quantity of each consumable stack to keep untouched in inventory before the AI is allowed to use it (0 allows using down to the last item).")]
+    [DefaultValue(0)]
+    public int MinConsumableReserveCount { get; set; } = 0;
+
+    [Category("Act Freely Optimization")]
+    [DisplayName("Smart Selective Ailment Curing")]
+    [Description("In Act Freely, only spends a turn curing ailments when it prevents imminent death (e.g. Poison lethal tick, Charm/Confuse sabotage, MC AOA block) or unlocks a higher-output carry turn right before they act.")]
+    [DefaultValue(true)]
+    public bool ActFreelySmartAilmentCure { get; set; } = true;
+
+    [Category("Act Freely Optimization")]
+    [DisplayName("Prioritize Least-Turns Immediate Victory")]
+    [Description("When Act Freely can finish the entire fight on the current turn (kills or All-Out Attack), take the guaranteed finish immediately rather than reviving or healing first.")]
+    [DefaultValue(true)]
+    public bool PreferLeastTurnsWin { get; set; } = true;
 
     [Category("Diagnostics")]
     [DisplayName("Debug Logging")]

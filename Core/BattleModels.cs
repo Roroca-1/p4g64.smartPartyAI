@@ -67,6 +67,8 @@ public sealed class SkillMetadata
     public byte TargetSide { get; init; } // 1=Allies, 2=Enemies, 3=Any
     public byte TargetCond { get; init; } // 0=Living, 1=SelfOnly, 2=NormalAttack/Special, 4=KO/DeadOnly
     public byte Accuracy { get; init; } = 100;
+    public byte BaseCrit { get; init; }
+    public byte BaseAilmentChance { get; init; }
     public byte MinHits { get; init; } = 1;
     public byte MaxHits { get; init; } = 1;
     public byte EffectType { get; init; } // 1=Damage, 2=Heal(Power), 8=Light/Dark+Dmg, 11=FullHeal/Revive
@@ -84,11 +86,15 @@ public sealed class SkillMetadata
     public bool TargetsAllies => TargetSide == 1 || TargetSide == 3;
     public bool IsOffensiveElement => (byte)Element <= (byte)ElementId.Dark;
     // Note: Divine Judgement / Demonic Decree (EffectType=8, Power=50) carry 0x80000 alongside HP-halving; exclude them from pure Hama/Mudo instant-kills.
-    public bool IsInstantKill => (Element == ElementId.Light || Element == ElementId.Dark) && EffectType == 0 && Power <= 1 && (AilmentMask & 0x80000) != 0;
+    public bool IsInstantKill => SkillId != 87 && (Element == ElementId.Light || Element == ElementId.Dark) && EffectType == 0 && Power <= 1 && (AilmentMask & 0x80000) != 0;
+    public bool IsPureAilmentSkill => ((byte)Element is >= 8 and <= 15) && TargetsEnemies && EffectType == 0 && (AilmentMask & 0xFEu) != 0;
+    public bool IsFearKillSkill => SkillId == 87;
     public bool IsPercentHpDamage => IsOffensiveElement && EffectType == 8 && Power > 0;
-    public bool IsDamaging => SkillId == 0 || (IsOffensiveElement && Power > 0 && (EffectType == 1 || EffectType == 8));
+    public bool IsFixedPowerDamage => IsOffensiveElement && Power > 0 && EffectType is 4 or 13 or 18;
+    public bool IsDamaging => SkillId == 0 || (IsOffensiveElement && Power > 0 && EffectType is 1 or 4 or 8 or 10 or 12 or 13 or 14 or 16 or 17 or 18);
     // Exclude Kamui Miracle (Sk245 / TargetCond == 2) because its chaotic RNG can heal enemies or inflict ailments on the party.
-    public bool IsHeal => Element == ElementId.Recovery && !TargetsDeadOnly && !TargetsDownOnly && TargetCond != 2 && SkillId != 245 && (EffectType == 2 || EffectType == 11) && Power > 0;
+    // Fixed-HP healing consumables (Medicine, Value Medicine, Medical Kit) use EffectType == 5 in SKILL.TBL.
+    public bool IsHeal => Element == ElementId.Recovery && !TargetsDeadOnly && !TargetsDownOnly && TargetCond != 2 && SkillId != 245 && (EffectType is 2 or 5 or 11) && Power > 0;
     public bool IsFullHeal => Element == ElementId.Recovery && !TargetsDeadOnly && !TargetsDownOnly && TargetCond != 2 && SkillId != 245 && EffectType == 11 && Power >= 100;
     public bool IsRevive => Element == ElementId.Recovery && TargetsDeadOnly && (AilmentMask & 0x80000) != 0;
     public bool IsAilmentCure => Element == ElementId.Recovery && !TargetsDeadOnly && (TargetsDownOnly ? (AilmentMask & 0x100001) != 0 : (AilmentMask & 0xFF) != 0);
@@ -106,7 +112,7 @@ public readonly struct AffinityInfo
     public bool IsRepel { get; init; }
     public bool IsDrain { get; init; }
     public bool IsRevealed { get; init; }
-    public bool BlockedByShield { get; init; } // Shield of Justice, Unbreakable Shield, Tetrakarn, Makarakarn
+    public bool BlockedByShield { get; init; } // Shield of Justice, Tetrakarn, Makarakarn
     public int MultiplierPercent { get; init; }
 
     public bool CanDealDamage => !IsNull && !IsRepel && !IsDrain && !BlockedByShield && MultiplierPercent > 0;
@@ -132,6 +138,7 @@ public sealed class CombatantSnapshot
     public int MaxHp { get; init; }
     public int CurrentSp { get; init; }
     public int MaxSp { get; init; }
+    public int Agility { get; init; }
     public double HpRatio => MaxHp > 0 ? Math.Clamp((double)CurrentHp / MaxHp, 0.0, 1.0) : 0.0;
     public double SpRatio => MaxSp > 0 ? Math.Clamp((double)CurrentSp / MaxSp, 0.0, 1.0) : 0.0;
 
@@ -145,22 +152,46 @@ public sealed class CombatantSnapshot
     public bool IsDizzy => (StateFlags & 0x40000) != 0;
     public bool IsStanding => !IsDead && !IsDown && !IsDizzy;
     public bool IsGuarding => (BaseFlags & 0x200) != 0;
-    public bool HasUnbreakableShield => (BaseFlags & 0x100) != 0;
+    /// <summary>Vanilla AI Phys-avoidance flag (BaseFlags &amp; 0x100) set on enemies carrying Counter passives.</summary>
+    public bool HasEnemyCounter => (BaseFlags & 0x100) != 0;
     public bool HasShieldOfJustice => (ShieldFlags & 0x1) != 0;
     public bool HasTetrakarn => (ChargeFlags & 0x20000) != 0;
     public bool HasMakarakarn => (ChargeFlags & 0x40000) != 0;
     public bool HasPowerCharge => (ChargeFlags & 0x80000) != 0;
     public bool HasMindCharge => (ChargeFlags & 0x100000) != 0;
-    public bool HasSilenced => (StateFlags & 0x20) != 0;
-    public bool HasCuringAilment => (StateFlags & 0x1FF) != 0; // Poison..Brainwash/Exhaust (0x01..0x100)
-    public bool HasCriticalCuringAilment => (StateFlags & 0x1E4) != 0; // Rage(0x04), Exhaust(0x20), Fear(0x40), Confuse(0x80), Charm(0x100)
+    public bool HasSilenced => (StateFlags & 0x08) != 0; // Verified at 0x1400d4132 (CanUnitUseSkill tests 0x08)
+    public bool HasPoison => (StateFlags & 0x20) != 0;   // Verified at 0x140079547 (10% MaxHP bleed clamped to 1 HP; 0.70x dmg at 0x1400d22ed)
+    public bool HasExhaust => (StateFlags & 0x40) != 0;  // Verified at 0x140079504 (10% MaxSP drain; 1.25x dmg taken at 0x1400d2303)
+    public bool HasRage => (StateFlags & 0x02) != 0;     // Verified at 0x1400d22f8/0x1400d2310 (2.0x dmg dealt/taken; blocks AOA)
+    public bool HasLossOfControl => (StateFlags & 0x196) != 0; // Control/miss-risk ailments: Rage(0x02), Fear(0x04), Confuse(0x10), Enervate(0x80), Charm(0x100)
+    public bool CanParticipateInAllOutAttack => !IsDead && (StateFlags & 0x180197) == 0; // Verified at 0x140047d00
+    public bool HasCuringAilment => (StateFlags & 0x1FF) != 0; // Status bits 0x01..0x100
+    public bool HasCriticalCuringAilment => (StateFlags & 0x1F6) != 0; // Heal/Support high priority: Rage(0x02), Fear(0x04), Confuse(0x10), Poison(0x20), Exhaust(0x40), Enervate(0x80), Charm(0x100)
     public bool NeedsRecoveryFromDownOrDizzy => !IsDead && (IsDown || IsDizzy);
 
-    // Buff/Debuff stages (positive = buffed, negative = debuffed)
+    // Buff/Debuff stages (positive = buffed, negative = debuffed) and remaining turns (null => infer 3 when active in mocks)
     public int AtkStage { get; init; }
     public int MagStage { get; init; }
     public int DefStage { get; init; }
     public int HitEvaStage { get; init; }
+    public int CritRateStage { get; init; }
+    public int RevolutionCritStage { get; init; }
+    public int? AtkStageTurns { get; init; }
+    public int? MagStageTurns { get; init; }
+    public int? DefStageTurns { get; init; }
+    public int? HitEvaStageTurns { get; init; }
+    public int? CritRateStageTurns { get; init; }
+    public int? RevolutionCritStageTurns { get; init; }
+
+    public int EffectiveAtkTurns => AtkStageTurns ?? (AtkStage != 0 ? 3 : 0);
+    public int EffectiveMagTurns => MagStageTurns ?? (MagStage != 0 ? 3 : 0);
+    public int EffectiveDefTurns => DefStageTurns ?? (DefStage != 0 ? 3 : 0);
+    public int EffectiveHitEvaTurns => HitEvaStageTurns ?? (HitEvaStage != 0 ? 3 : 0);
+    public int EffectiveCritRateTurns => CritRateStageTurns ?? (CritRateStage != 0 ? 3 : 0);
+    public int EffectiveRevolutionCritTurns => RevolutionCritStageTurns ?? (RevolutionCritStage != 0 ? 3 : 0);
+
+    public bool HasAilmentFromSkill(SkillMetadata skill) =>
+        (StateFlags & (skill.AilmentMask & 0xFEu)) != 0;
 
     // Elemental Walls (+0x22/+0x23 > 0) & Breaks (+0x20/+0x21 > 0)
     public bool HasRedWall { get; init; }
@@ -214,6 +245,16 @@ public sealed class BattleSnapshot
     public List<CombatantSnapshot> Allies { get; init; } = new();
     public List<CombatantSnapshot> Enemies { get; init; } = new();
     public HashSet<int> ActiveBattleBits { get; init; } = new();
+    /// <summary>
+    /// Chronological turn order of remaining units acting in the current round after the Actor's turn.
+    /// Empty when turn-queue metadata is unavailable (or in legacy unit tests).
+    /// </summary>
+    public IReadOnlyList<CombatantSnapshot> UpcomingRoundTurnOrder { get; init; } = Array.Empty<CombatantSnapshot>();
+    /// <summary>
+    /// Raw remaining turn-queue entries from BattleManager + 0x398 after the Actor's turn,
+    /// including any dead slots still present in the native queue.
+    /// </summary>
+    public IReadOnlyList<CombatantSnapshot> RawRoundTurnOrder { get; init; } = Array.Empty<CombatantSnapshot>();
 }
 
 /// <summary>
@@ -228,6 +269,38 @@ public sealed class AiDecision
     public IReadOnlyList<CombatantSnapshot>? Targets { get; init; }
     public double Score { get; init; }
     public string Reason { get; init; } = string.Empty;
+}
+
+public enum BattleConsumableKind
+{
+    Damage,
+    Heal,
+    Revive,
+    CureAilment,
+    SpRestore
+}
+
+public enum ConsumableRarityTier
+{
+    Common,
+    Mid,
+    Rare
+}
+
+public sealed class BattleConsumableInfo
+{
+    public ushort ItemId { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public ushort SkillId { get; init; }
+    public int Quantity { get; init; }
+    public BattleConsumableKind Kind { get; init; }
+    public ConsumableRarityTier Rarity { get; init; }
+    public SkillMetadata Skill { get; init; } = null!;
+    public bool IsPartyWide => Skill.IsAoE;
+    public bool CanCureAilment => Kind == BattleConsumableKind.CureAilment || (Kind == BattleConsumableKind.Heal && Skill.IsAilmentCure);
+    public int EstimatedHpGain { get; init; }
+    public int EstimatedSpGain { get; init; }
+    public bool IsFullRecovery { get; init; }
 }
 
 public sealed class SpRecoveryItemInfo
@@ -253,7 +326,14 @@ public interface IBattleEngineBridge
     int GetEffectiveCost(CombatantSnapshot actor, ushort skillId);
     bool CanUseSkill(CombatantSnapshot actor, ushort skillId);
     AffinityInfo QueryEffectiveAffinity(CombatantSnapshot actor, CombatantSnapshot target, ElementId element, bool respectAnalysis);
+    AffinityInfo QueryAilmentAffinity(CombatantSnapshot actor, CombatantSnapshot target, bool respectAnalysis) =>
+        (target.MaxHp >= 500 || SkillCatalog.IsKnownBossUnitId(target.UnitOrEnemyId))
+            ? new AffinityInfo { IsNull = true, IsRevealed = true, MultiplierPercent = 0 }
+            : new AffinityInfo { IsRevealed = true, MultiplierPercent = 100 };
     double EstimateSingleHitDamage(ushort skillId, CombatantSnapshot attacker, CombatantSnapshot target, AffinityInfo effectiveAffinity, bool assumeChargedOverride, bool assumeUnchargedOverride, bool respectAnalysis);
     bool IsKnownWeakness(CombatantSnapshot target, ElementId element, AffinityInfo aff);
     IReadOnlyList<SpRecoveryItemInfo> GetAvailableSpRecoveryItems(CombatantSnapshot beneficiary);
+    IReadOnlyList<BattleConsumableInfo> GetAvailableConsumables(CombatantSnapshot actor);
+    double GetOffensiveBuffMultiplier();
+    double GetDefenseDebuffMultiplier();
 }

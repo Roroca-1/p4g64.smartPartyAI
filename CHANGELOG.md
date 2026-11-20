@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0 (2026-11-20)
+- **Performance & Native Caching**: Added static `SKILL.TBL` caching and per-turn snapshot caching in `NativeBattleBridge` (native `CalcSkillDamage`, affinities, skill usability/costs, attack element, consumables, and `EFFECT.TBL` stage multipliers), eliminated duplicate `TeamOffenseContext`, `EvaluateChargeAction`, and `AnalyzeTelegraphedThreats` passes per turn, removed reflection/boxing in `GetAttackElement`, and skipped empty `0` Persona skill slots across all evaluator loops.
+- **Bug Fixes**:
+  - Fixed `EvaluateBreakFallback` targeting `livingEnemies[0]` instead of the actual enemy that resists/nulls the Break element and lacks an active Break.
+  - Fixed heuristic `Rebellion` targeting counting empty Persona skill slots (`0`) as Physical skills.
+  - Fixed `StateFlags` bitmasks against `SKILL.TBL` / `P4G.exe` (`0x02` Rage, `0x04` Fear, `0x08` Silence, `0x10` Confuse, `0x20` Poison, `0x40` Exhaust, `0x80` Enervate), `Mod.cs` loss-of-control bypass (`0x80196`), and added verified cure skill names (`Re Patra`, `Posumudi`, `Mutudi`, `Enradi`, `Tirundi`, `Nervundi`, `Energy Shower`).
+  - Fixed shifted boss unit IDs (`UNIT.TBL` / `ENCOUNT.TBL`) and boss guard-lock edge cases (`Ameno-sagiri` `LastSkillId`, `WaitMessageId` gating, Shadow Kanji Phase-100 `358`/`359` gating).
+- **Turn-Order Reviving & Anti-Wipe Survival Triage**: Captures `RawRoundTurnOrder` (`BattleManager + 0x398`) and sorts revive targets by turn window / descending Agility (e.g., reviving Yukiko before Chie when Yosuke acts), filters telegraph/charge-weak revives, prioritizes critical self/Protagonist survival healing before partial-HP revives, stabilizes low-HP survivors before chaining `50%`-HP boss revives, and hardens Charged-boss survival guards.
+- **Team Value-of-Setup (VoS), Buff Durations & Enemy Ailments**: Reads live `EFFECT.TBL` stage multipliers (`0x140ec09c0`) and 4-bit remaining buff/debuff turn durations (`Combatant + 0x25`) for proactive refreshes (`Matarukaja`, `Rakunda`, `Marakunda`, `Debilitate`, `Dragon Hustle`, `Rebellion`, `Revolution`), Charge deferral, and `AilmentEvaluator` (`Tentarafoo`, `Evil Smile`, `Valiant Dance`, `Ghastly Wail`).
+- **Smart Element Probing & Consumables**: Decoupled elemental weakness probing from boss Hama/Mudo immunity so party members probe Shadow Kanji's guards (`272`/`273`) and tough regular shadows with `Bufu`/`Mabufu`/`Agi`/`Zio`/`Garu` while keeping `Bufu` ahead of `Mabufu` on single targets; added hybrid HP+Cure consumable support (`#795..#797`), fixed `ActFreely` ailment-cure opportunity-cost scoring, and expanded `ActFreelyRoutePlanner`.
+- **Tests**: Expanded offline xUnit suite from 30 to 61 passing tests (`0` warnings, `0` errors).
+
 ## 1.0.0 (2026-11-16)
 - Initial release for Persona 4 Golden (PC 64-bit, Reloaded-II).
 - Replaced vanilla party AI tactics (`Full Assault`, `Conserve SP`, `Heal/Support`, `Act Freely`) with deterministic `SKILL.TBL` damage & multi-hit evaluation (`0x1400d1910` + midpoint RNG stabilization via `0x140520960` during simulation).

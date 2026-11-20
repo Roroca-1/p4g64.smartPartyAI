@@ -1,43 +1,50 @@
 # Smart Party AI Overhaul (`p4g64.smartPartyAI`)
 
-A native C# [Reloaded-II](https://reloaded-project.github.io/Reloaded-II/) mod for **Persona 4 Golden (PC 64-bit)** that replaces the vanilla party AI tactics engine with data-driven combat math, 2-step `1 More` lookahead, AoE group optimization, strict barrier/wall avoidance, and automatic boss telegraph & weakness guarding.
+A native C# [Reloaded-II](https://reloaded-project.github.io/Reloaded-II/) mod for **Persona 4 Golden (PC 64-bit)** that replaces the vanilla party AI tactics engine with deterministic `SKILL.TBL` combat math, 2-step `1 More` lookahead, team Value-of-Setup buff/debuff evaluation, turn-order reviving & anti-wipe triage, smart element probing, ailment curing, and boss telegraph guarding.
 
 [![Buy Me a Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/kanasara)
 
 ## What It Changes
 
 ### Core Combat Evaluation
-- **True `SKILL.TBL` Damage & Multi-Hit Math**: Evaluates skills using the game's actual deterministic single-hit formula (`0x1400d1910`) multiplied by expected hit count `(min_hits + max_hits) / 2.0`, AoE group totals across living enemies, active buffs/debuffs, Charges, and Boost/Amp passives—ignoring misleading flavor text.
-- **2-Step `1 More` Lookahead**: Compares direct single-turn damage against hitting an active weakness first (`Skill_1`) → knocking down → following up on the `1 More` (`Skill_2`, plus All-Out Attack opportunities). For example, if Fire deals 50 dmg (Weak) and Physical deals 200 dmg, the AI chooses Fire first (`50 + 200 = 250 > 200`) and then unleashes the 200 dmg Physical skill on the `1 More`.
-- **Strict Barrier & Negated-Weakness Avoidance**: Avoids elements blocked or negated by `Red/Blue/Green/White Wall`, `Guard`, `Tetrakarn`, `Makarakarn`, `Shield of Justice`, or dynamic Null/Repel/Drain. Rejects AoE spells if any living enemy Repels, Drains, or Karn-reflects that element.
-- **Smart Boss Telegraph & Weakness Guarding**: Monitors boss telegraph messages, `LastSkillId`, `Mind Charge` / `Power Charge`, and battle bitflags to automatically **Guard** (or cast a matching Elemental Wall / `Makarakarn` on `Act Freely` & `Heal/Support`) when a boss telegraphs an attack threatening an uncovered weakness (e.g., Chie guarding against Shadow Yukiko's *"passionate stare"* → *Burn to Ashes*) or a fatal ultimate (e.g., Shadow Teddie's *Nihil Hand*), unless a lethal finish is available immediately.
-- **Configurable Knowledge Mode**: `RespectAnalysisState` (default `true`) restricts weakness/immunity exploitation to affinities revealed in the Analyze panel while always respecting visible in-battle barriers/walls; toggle `false` for Turn-1 omniscience.
+- **True `SKILL.TBL` Damage & Multi-Hit Math**: Evaluates skills using the game's actual deterministic single-hit formula (`0x1400d1910`) multiplied by expected hit count `(min_hits + max_hits) / 2.0`, live `EFFECT.TBL` buff/debuff multipliers (`0x140ec09c0`), buff turn durations (`Combatant + 0x25`), Charges, and Boost/Amp passives—with static `SKILL.TBL` and per-turn snapshot caching for low frame overhead.
+- **2-Step `1 More` Lookahead**: Compares direct single-turn damage against hitting an active weakness first (`Skill_1`) → knocking down → following up on the `1 More` (`Skill_2`, plus All-Out Attack opportunities).
+- **Team Value-of-Setup (Buffs, Debuffs & Crit)**: Projects multi-turn team damage against kill horizon and Charge momentum so `Matarukaja`, `Rakunda`, `Marakunda`, `Debilitate`, `Dragon Hustle`, `Rebellion`, and `Revolution` are cast only when net team gain beats attacking immediately.
+- **Turn-Order Reviving & Anti-Wipe Survival Triage**: Reads `BattleManager + 0x398` turn order and Agility so downed allies acting sooner are revived first, skips telegraph/charge-weak revives, prioritizes critical self/Protagonist healing over suicidal revives, and stabilizes wounded survivors before chaining partial-HP boss revives.
+- **Smart Element Probing & Barrier Avoidance**: Strictly respects `Red/Blue/Green/White Wall`, `Guard`, `Tetrakarn`, `Makarakarn`, `Shield of Justice`, and Null/Repel/Drain. Under `RespectAnalysisState = true`, probes unrevealed elemental weaknesses on regular shadows and boss adds (such as Shadow Kanji's guards) while skipping standalone major bosses.
+- **Smart Boss Telegraph & Weakness Guarding**: Monitors verified boss unit IDs, telegraph wait messages, `LastSkillId`, `Mind Charge` / `Power Charge`, and battle bitflags to automatically **Guard** (or cover exposed allies with Elemental Walls / `Makarakarn`) unless an immediate battle finish is available.
+- **Smart Consumables & Ailment Curing**: Supports SP items, healing items, hybrid HP+Cure items, revive items, and elemental damage items with configurable rarity/reserve protection, verified `StateFlags` bitmasks, and selective `Act Freely` ailment curing.
 
 ### Tactics Presets
-1. **Full Assault**: Pure maximum damage, `1 More` chains, All-Out Attack setups, `Power/Mind Charge` 2-turn math, and self-preservation guarding against telegraphed weakness/ultimate wipes when not finishing the boss.
-2. **Conserve SP**: Prioritizes 0-SP Normal Attacks and safe HP-cost Physical skills (`>= 45%` HP), `Spirit Drain` below 35% SP, and low-cost Tier-1 spells only when unlocking an All-Out Attack or high-value `1 More` combo; guards against telegraphed weakness/ultimate attacks and never blindly bashes Phys Null/Repel enemies.
-3. **Heal / Support**: Percentage-based Max HP healing (`< 60%` default), revives (`Recarm`/`Samarecarm`), ailment triage, `Dekaja`/`Dekunda`, boss buffs/debuffs (`Matarukaja`, `Debilitate`, `Rakunda`, `Heat Riser`, `Shield of Justice`), Elemental Walls for exposed party weaknesses, telegraph defense, and smart `1 More` offense when healthy.
-4. **Act Freely**: Balanced All-Rounder combining telegraphed weakness/ultimate guarding, critical emergency healing (`< 40%`), immediate All-Out Attack priority, reactive ally Wall support, key boss buffs/debuffs, and Full Assault damage logic.
+1. **Full Assault**: Maximum expected damage, 2-step `1 More` chains, All-Out Attack setups, `Power/Mind Charge` math, high-ROI offensive setups (`AllowOffensiveBuffsInFullAssault`), damage-amplifying ailments, and self-defense guarding against telegraphed wipes when not finishing the fight.
+2. **Conserve SP**: Prioritizes 0-SP Normal Attacks and safe HP-cost Physical skills (`>= 45%` HP), emergency cheap recovery (`<= 8 SP` / common items), high-ROI cheap setups on long fights, cheap `1 More` / All-Out Attack starters, optional cheap unanalyzed probing, and `Spirit Drain` / SP items below threshold.
+3. **Heal / Support**: Percentage-based HP healing (`< 60%` default, including `Youthful Wind` and `Salvation` turn economy), turn-order reviving, ailment curing, `Dekaja`/`Dekunda`, boss buffs/debuffs (`Matarukaja`, `Debilitate`, `Rakunda`, `Heat Riser`, `Shield of Justice`), Elemental Walls, disabling ailments, and smart `1 More` offense when healthy.
+4. **Act Freely**: Turn-order-aware least-turns route planner combining immediate finishes, telegraph/Charge survival guards, critical survival healing, anti-wipe reviving, selective lifesaving/carry ailment curing, team setups, and Full Assault offense.
 
 ## Configuration (Reloaded-II Mod Config)
 
 All options can be configured directly inside the Reloaded-II launcher under **Configure Mod**:
-- **Respect Analysis State** (`true`): Only exploit enemy affinities revealed in the Analyze panel while always honoring visible in-battle barriers/walls/Karns.
-- **Smart Telegraph & Weakness Guard** (`true`): Automatically Guard or shield against telegraphed boss weakness hits and ultimate attacks.
-- **Enable Smart Full Assault / Conserve SP / Heal / Support / Act Freely** (`true`): Toggle individual tactics presets on or off.
-- **Heal/Support HP Threshold (%)** (`60`), **Act Freely Emergency HP Threshold (%)** (`40`), **Conserve SP Safe HP Floor (%)** (`45`), **Conserve SP Low-Cost Starter Max SP** (`8`).
-- **Use SP Recovery Items** (`true`), **SP Item Threshold (%)** (`20`), **Allow Ally SP Item Support** (`true`), **Allow Full-SP / Rare Items (Soul Food / Soma)** (`false`): Recover SP cleanly using partial SP consumables from shared inventory without wasting rare full-restores unless enabled.
-- **Debug Logging** (`true`): Prints AI damage comparisons and decision breakdowns in the Reloaded-II console.
+- **Affinity & Knowledge**: `RespectAnalysisState` (`true`), `ProbeUnrevealedElements` (`true`), `EnableTelegraphGuard` (`true`).
+- **Tactics Presets**: Individual toggles for Smart Full Assault, Conserve SP, Heal/Support, Act Freely, plus `AllowOffensiveBuffsInFullAssault` (`true`) and `ConserveSpProbeUnrevealed` (`true`).
+- **Thresholds**: `HealSupportHpThreshold` (`60%`), `ActFreelyEmergencyHpThreshold` (`40%`), `ConserveSpSafeHpPercent` (`45%`), `ConserveSpLowCostThreshold` (`8 SP`).
+- **Items & SP Recovery**: `EnableSpRecoveryItems` (`true`), `SpRecoveryItemThresholdPercent` (`20%`), `AllowAllySpItemSupport` (`true`), `AllowRareFullSpItems` (`false`), `EnableDamageItemsInAi` (`true`), `EnableSupportItemsInAi` (`true`), `AllowRareConsumables` (`false`), `AllowDamageItemProbing` (`false`), `MinConsumableReserveCount` (`0`).
+- **Act Freely Optimization**: `ActFreelySmartAilmentCure` (`true`), `PreferLeastTurnsWin` (`true`).
+- **Diagnostics**: `DebugLogging` (`true`).
 
 ## Installation
 
 ### Option A: GameBanana 1-Click Install
-Click the **Reloaded-II 1-Click Install** button on GameBanana. Reloaded-II will automatically download the mod and its `reloaded.sharedlib.hooks` dependency.
+Click the **Reloaded-II 1-Click Install** button on [GameBanana](https://gamebanana.com/mods/741767). Reloaded-II will automatically download the mod and its `reloaded.sharedlib.hooks` dependency.
 
 ### Option B: Manual Install (GitHub / Archive)
 1. Install [**Reloaded.SharedLib.Hooks**](https://github.com/Sewer56/Reloaded.SharedLib.Hooks.ReloadedII) if not already installed (or let Reloaded-II auto-download dependencies).
-2. Download `p4g64.smartPartyAI1.0.0.zip` (or `.7z`) and drag it into the Reloaded-II launcher (or extract into `<Reloaded-II>/Mods/p4g64.smartPartyAI/`).
+2. Download `p4g64.smartPartyAI1.1.0.zip` (or `.7z`) from [GitHub Releases](https://github.com/Roroca-1/p4g64.smartPartyAI/releases) and drag it into the Reloaded-II launcher (or extract into `<Reloaded-II>/Mods/p4g64.smartPartyAI/`).
 3. Enable **Smart Party AI Overhaul** for **Persona 4 Golden** (`p4g.exe`) and launch through Reloaded-II.
+
+## Credits & AI Assistance Disclosure
+
+- **Project Lead, Design & Live Testing**: Alex Liu (`Kanasara` / `Roroca-1`) — tactical design direction, preset architecture decisions, live in-game P4G battle testing, log analysis, and verification.
+- **AI Coding Assistants**: C# implementation, refactoring, and automated unit tests were heavily assisted by [Google Gemini](https://gemini.google.com/) (via Google Antigravity) and [OpenAI Codex](https://openai.com/codex/).
 
 ## Build & Tests
 

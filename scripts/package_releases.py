@@ -23,7 +23,7 @@ RELOADED_MOD_DIR = Path(
 )
 
 MOD_ID = "p4g64.smartPartyAI"
-VERSION = "1.0.0"
+VERSION = json.loads((ROOT / "ModConfig.json").read_text(encoding="utf-8"))["ModVersion"]
 
 # Known-good xxHash64 (seed=0) hashes from Reloaded-II Sewer56.Update.Metadata.json files
 REFERENCE_XXH64 = {
@@ -178,7 +178,7 @@ def generate_preview_png(out_path: Path) -> None:
         x += cw + 12
 
     # Bottom yellow banner text (safely inside inner border [28..484])
-    draw.text((42, 412), "v1.0.0  •  All 4 Tactics Overhauled", font=f_bot, fill=dark)
+    draw.text((42, 412), f"v{VERSION}  •  All 4 Tactics Overhauled", font=f_bot, fill=dark)
     draw.text((42, 446), "Full Assault | Conserve SP | Heal | Act Freely", font=f_sub, fill=(35, 38, 48, 255))
 
     img.convert("RGB").save(out_path, "PNG", optimize=True)
@@ -308,22 +308,25 @@ def main() -> None:
 
 [![Buy Me a Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/kanasara)
 
-A native C# Reloaded-II overhaul for **Persona 4 Golden (PC 64-bit)** that replaces the vanilla party member AI tactics engine with deterministic `SKILL.TBL` combat math, 2-step `1 More` lookahead, AoE group evaluation, strict Wall/Karn/Shield avoidance, and boss telegraph guarding.
+A native C# Reloaded-II overhaul for **Persona 4 Golden (PC 64-bit)** that replaces the vanilla party member AI tactics engine with deterministic `SKILL.TBL` combat math, 2-step `1 More` lookahead, team Value-of-Setup buffs/debuffs, turn-order reviving & anti-wipe triage, smart element probing, ailment curing, and boss telegraph guarding.
 
-## Highlights
-- **True `SKILL.TBL` Damage & Multi-Hit Math**: Evaluates real single-hit damage (`0x1400d1910`) multiplied by `(min_hits + max_hits) / 2.0`, Buffs, Charges, and Boost/Amp passives instead of misleading skill descriptions.
-- **2-Step `1 More` Lookahead**: Spots knockdown chains (e.g., 50 dmg Fire Weak → `1 More` → 200 dmg Physical = 250 > 200) and All-Out Attack setups.
-- **Strict Barrier & Negated-Weakness Avoidance**: Avoids elements negated or reflected by `Red/Blue/Green/White Wall`, `Guard`, `Tetrakarn`, `Makarakarn`, `Shield of Justice`, or dynamic Null/Repel/Drain—and blocks unsafe AoEs if any target Repels/Drains/reflects.
-- **Smart Boss Telegraph & Weakness Guarding (`EnableTelegraphGuard`)**: Party members automatically **Guard** (or cast Elemental Walls / `Makarakarn` on `Act Freely` & `Heal/Support`) when bosses telegraph weakness-hitting attacks (e.g., Chie guarding on *"Shadow Yukiko has a passionate stare"*) or party-wipe ultimates (e.g., Shadow Teddie's *Nihil Hand*).
-- **All 4 Tactics Overhauled**: **Full Assault**, **Conserve SP**, **Heal/Support**, and **Act Freely**, plus configurable **Respect Analysis State** (`true` by default).
+## What's New in v{VERSION}
+- **Performance & Native Caching**: Added static `SKILL.TBL` caching and per-turn snapshot caching in `NativeBattleBridge` (native damage calculations, affinities, costs, usability, attack element, and consumables), removed redundant `TeamOffenseContext` / `EvaluateChargeAction` / `AnalyzeTelegraphedThreats` passes per turn, and skipped empty `0` Persona skill slots across all evaluator loops.
+- **Bug Fixes**: Fixed single-target Break fallback targeting the wrong enemy slot, fixed heuristic `Rebellion` counting empty skill slots as Physical skills, fixed verified `StateFlags` bitmasks (`0x02` Rage, `0x04` Fear, `0x08` Silence, `0x10` Confuse, `0x20` Poison, `0x40` Exhaust, `0x80` Enervate), fixed shifted boss unit IDs / guard-lock edge cases, and added verified cure skill names (`Re Patra`, `Posumudi`, `Mutudi`, `Enradi`, `Tirundi`, `Nervundi`, `Energy Shower`).
+- **Turn-Order Reviving & Anti-Wipe Survival Triage**: Revives downed allies in turn/Agility order (e.g., Yukiko before Chie when Yosuke acts), filters telegraph/charge-weak revives, prioritizes critical self/Protagonist healing over risky partial-HP revives, stabilizes low-HP survivors before chaining boss revives, and hardens Charged-boss survival guards.
+- **Team Value-of-Setup, Buff Durations & Enemy Ailments**: Reads live `EFFECT.TBL` stage multipliers (`0x140ec09c0`) and 4-bit remaining buff/debuff durations (`Combatant + 0x25`) for proactive buff/debuff refreshes, Charge deferral, and enemy ailment / `Ghastly Wail` evaluation.
+- **Smart Element Probing & Consumables**: Probes unrevealed weaknesses on boss adds (e.g., Shadow Kanji's guards) and tough regular shadows while keeping `Bufu` preferred over `Mabufu` on single targets; supports hybrid HP+Cure consumables (`#795..#797`) and clean `Act Freely` ailment-cure scoring.
+- **Verified**: `61/61` xUnit tests passing, `0` warnings / `0` errors on Release build.
 
-## GitHub Release Upload Checklist
-- Suggested Git tag: `{VERSION}`
-- Attach these files from `releases/github/` to the GitHub Release:
-  1. `{gh_zip_name}` (primary asset matching `ModConfig.json`)
-  2. `Mod.zip` (optional compatibility alias)
-  3. `{gh_7z_name}` (smaller 7z download)
-  4. `{MOD_ID}.ReleaseMetadata.json` (enables Reloaded-II auto-updates via GitHub)
+## Credits & AI Assistance Disclosure
+- **Project Lead, Design & Live Testing**: Alex Liu (`Kanasara` / `Roroca-1`)
+- **AI Coding Assistants**: C# coding, refactoring, and automated unit tests were heavily assisted by [Google Gemini](https://gemini.google.com/) (via Google Antigravity) and [OpenAI Codex](https://openai.com/codex/).
+
+## Assets
+- `{gh_zip_name}` (primary Reloaded-II release asset matching `ModConfig.json`)
+- `Mod.zip` (compatibility alias)
+- `{gh_7z_name}` (smaller 7z download)
+- `{MOD_ID}.ReleaseMetadata.json` (enables Reloaded-II auto-updates via GitHub)
 """,
         encoding="utf-8",
     )
