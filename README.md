@@ -41,10 +41,9 @@ Click the **Reloaded-II 1-Click Install** button on [GameBanana](https://gameban
 2. Download `p4g64.smartPartyAI1.1.1.zip` (or `.7z`) from [GitHub Releases](https://github.com/Roroca-1/p4g64.smartPartyAI/releases) and drag it into the Reloaded-II launcher (or extract into `<Reloaded-II>/Mods/p4g64.smartPartyAI/`).
 3. Enable **Smart Party AI Overhaul** for **Persona 4 Golden** (`p4g.exe`) and launch through Reloaded-II.
 
-## Credits & AI Assistance Disclosure
+## AI Assistance Disclosure
 
-- **Project Lead, Design & Live Testing**:  `Roroca-1` — tactical design direction, preset architecture decisions, live in-game P4G battle testing, log analysis, and verification.
-- **AI Coding Assistants**: C# implementation, refactoring, and automated unit tests were heavily assisted by [Google Gemini](https://gemini.google.com/) (via Google Antigravity) and [OpenAI Codex](https://openai.com/codex/).
+- **AI Coding Assistant**: C# implementation, refactoring, and automated unit tests were heavily assisted by **Gemini 4 Neon** ([Google Gemini](https://gemini.google.com/) via Google Antigravity).
 
 ## Build & Tests
 

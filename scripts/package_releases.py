@@ -321,9 +321,8 @@ A native C# Reloaded-II overhaul for **Persona 4 Golden (PC 64-bit)** that repla
 - **Efficiency, Lifecycle & Smaller Package**: Eliminated duplicate `BuildTeamContext` passes per turn, reduced hot-path allocations (`Dictionary`/`HashSet`/LINQ) in `OffenseEvaluator` and `TeamOffenseEstimator`, disposed `FileSystemWatcher` cleanly, and quantized `Preview.png` (~64% smaller icon).
 - **Verified**: `66/66` xUnit tests passing, `0` warnings / `0` errors on Release build.
 
-## Credits & AI Assistance Disclosure
-- **Project Lead, Design & Live Testing**: Alex Liu (`Kanasara` / `Roroca-1`)
-- **AI Coding Assistants**: C# coding, refactoring, and automated unit tests were heavily assisted by [Google Gemini](https://gemini.google.com/) (via Google Antigravity) and [OpenAI Codex](https://openai.com/codex/).
+## AI Assistance Disclosure
+- **AI Coding Assistant**: C# coding, refactoring, and automated unit tests were heavily assisted by **Gemini 4 Neon** ([Google Gemini](https://gemini.google.com/) via Google Antigravity).
 
 ## Assets
 - `{gh_zip_name}` (primary Reloaded-II release asset matching `ModConfig.json`)
