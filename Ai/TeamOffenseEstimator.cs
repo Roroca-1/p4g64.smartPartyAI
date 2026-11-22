@@ -329,40 +329,50 @@ internal sealed class TeamOffenseEstimator
         AddCritBuffCandidates(
             candidates, actor, ctx, livingAllies, livingEnemies, otherBuffRounds, actorFutureRounds);
 
-        return candidates
-            .Select(c =>
+        OffensiveSetupCandidate? bestCandidate = null;
+        double bestScore = double.NegativeInfinity;
+        int bestSpCost = int.MaxValue;
+
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            var c = candidates[i];
+            int spCost = c.Skill.CostType == 2 ? _bridge.GetEffectiveCost(actor, c.Skill.SkillId) : 0;
+            double spPenalty = (!ignoreResourceCosts && !conserveSpMode && spCost > 0)
+                ? spCost * (actor.MaxSp > 0 && actor.SpRatio < 0.45 ? 2.5 : 1.5)
+                : 0.0;
+            double adjustedScore = c.Score - spPenalty;
+
+            double effectiveMult = (!ignoreResourceCosts && !conserveSpMode && !c.IsAoE && (c.BuffMask & SkillCatalog.BuffTarukaja) != 0)
+                ? Math.Max(oppCostMultiplier, 1.45)
+                : oppCostMultiplier;
+            if (c.AddedTeamDamage <= ctx.ActorOpportunityCost * effectiveMult)
+                continue;
+            if (!ignoreResourceCosts && !conserveSpMode && adjustedScore <= 0.0)
+                continue;
+            if (conserveSpMode && (spCost > 15 || c.AddedTeamDamage < spCost * 18.0))
+                continue;
+
+            if (bestCandidate == null ||
+                adjustedScore > bestScore ||
+                (adjustedScore == bestScore && spCost < bestSpCost))
             {
-                int spCost = c.Skill.CostType == 2 ? _bridge.GetEffectiveCost(actor, c.Skill.SkillId) : 0;
-                double spPenalty = (!ignoreResourceCosts && !conserveSpMode && spCost > 0)
-                    ? spCost * (actor.MaxSp > 0 && actor.SpRatio < 0.45 ? 2.5 : 1.5)
-                    : 0.0;
-                return (Candidate: c, SpCost: spCost, AdjustedScore: c.Score - spPenalty);
-            })
-            .Where(x =>
-            {
-                var c = x.Candidate;
-                double effectiveMult = (!ignoreResourceCosts && !conserveSpMode && !c.IsAoE && (c.BuffMask & SkillCatalog.BuffTarukaja) != 0)
-                    ? Math.Max(oppCostMultiplier, 1.45)
-                    : oppCostMultiplier;
-                if (c.AddedTeamDamage <= ctx.ActorOpportunityCost * effectiveMult)
-                    return false;
-                if (!ignoreResourceCosts && !conserveSpMode && x.AdjustedScore <= 0.0)
-                    return false;
-                if (!conserveSpMode)
-                    return true;
-                return x.SpCost <= 15 && c.AddedTeamDamage >= x.SpCost * 18.0;
-            })
-            .OrderByDescending(x => x.AdjustedScore)
-            .ThenBy(x => x.SpCost)
-            .Select(x => new OffensiveSetupCandidate
-            {
-                Skill = x.Candidate.Skill,
-                Target = x.Candidate.Target,
-                AddedTeamDamage = x.Candidate.AddedTeamDamage,
-                Score = x.AdjustedScore,
-                Reason = x.Candidate.Reason
-            })
-            .FirstOrDefault();
+                bestCandidate = c;
+                bestScore = adjustedScore;
+                bestSpCost = spCost;
+            }
+        }
+
+        if (bestCandidate == null)
+            return null;
+
+        return new OffensiveSetupCandidate
+        {
+            Skill = bestCandidate.Skill,
+            Target = bestCandidate.Target,
+            AddedTeamDamage = bestCandidate.AddedTeamDamage,
+            Score = bestScore,
+            Reason = bestCandidate.Reason
+        };
     }
 
     /// <summary>
@@ -456,12 +466,27 @@ internal sealed class TeamOffenseEstimator
         bool bestPhysKnockEligible = false;
         bool bestPhysHasPowerCharge = false;
 
-        var seen = new HashSet<ushort> { 0 };
+        Span<ushort> seen = stackalloc ushort[9];
+        int seenCount = 1;
+        seen[0] = 0;
         EvaluateAllySkill(0);
         foreach (ushort id in ally.EquippedSkills)
         {
-            if (seen.Add(id))
+            bool dup = false;
+            for (int k = 0; k < seenCount; k++)
+            {
+                if (seen[k] == id)
+                {
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup)
+            {
+                if (seenCount < seen.Length)
+                    seen[seenCount++] = id;
                 EvaluateAllySkill(id);
+            }
         }
 
         return new AllyOffenseProjection
@@ -502,6 +527,32 @@ internal sealed class TeamOffenseEstimator
             };
         }
 
+        double AdjustDamageForAilmentProjection(SkillMetadata skill, ElementId elem, double dmg)
+        {
+            if (dmg <= 0.0 || skill.IsFixedPowerDamage || skill.IsPercentHpDamage)
+                return dmg;
+
+            // P4G.exe (0x1400d22e9..0x1400d22fe): Poison applies 0.70x ONLY to Phys; Rage applies 2.0x to all ordinary damage.
+            bool bridgeIncludesStatus = _bridge.IncludesAttackerStatusMultipliersInDamage;
+            if (ignoreAilments)
+            {
+                if (bridgeIncludesStatus)
+                {
+                    if (ally.HasPoison && elem == ElementId.Phys)
+                        dmg /= 0.70;
+                    if (ally.HasRage)
+                        dmg /= 2.0;
+                }
+            }
+            else if (!bridgeIncludesStatus)
+            {
+                if (ally.HasPoison && elem == ElementId.Phys)
+                    dmg *= 0.70;
+            }
+
+            return dmg;
+        }
+
         void EvaluateAllySkill(ushort skillId)
         {
             var skill = _bridge.GetSkill(skillId);
@@ -536,9 +587,13 @@ internal sealed class TeamOffenseEstimator
                     if (enemy.IsStanding && hitsWeak)
                         hitsStandingWeakness = true;
 
-                    double nextHit = _bridge.EstimateSingleHitDamage(skillId, ally, enemy, aff, false, false, config.RespectAnalysisState) * skill.ExpectedHits;
+                    double nextHit = AdjustDamageForAilmentProjection(
+                        skill, elem,
+                        _bridge.EstimateSingleHitDamage(skillId, ally, enemy, aff, false, false, config.RespectAnalysisState) * skill.ExpectedHits);
                     double sustHit = isChargedNow
-                        ? _bridge.EstimateSingleHitDamage(skillId, ally, enemy, aff, false, true, config.RespectAnalysisState) * skill.ExpectedHits
+                        ? AdjustDamageForAilmentProjection(
+                            skill, elem,
+                            _bridge.EstimateSingleHitDamage(skillId, ally, enemy, aff, false, true, config.RespectAnalysisState) * skill.ExpectedHits)
                         : nextHit;
 
                     if (isCritEligiblePhys && nextHit > 0.0 && enemy.IsStanding && !hitsWeak &&
@@ -593,9 +648,13 @@ internal sealed class TeamOffenseEstimator
                 if (enemy.IsStanding && hitsWeak)
                     hitsStandingWeakness = true;
 
-                double next = _bridge.EstimateSingleHitDamage(skillId, ally, enemy, aff, false, false, config.RespectAnalysisState) * skill.ExpectedHits;
+                double next = AdjustDamageForAilmentProjection(
+                    skill, elem,
+                    _bridge.EstimateSingleHitDamage(skillId, ally, enemy, aff, false, false, config.RespectAnalysisState) * skill.ExpectedHits);
                 double sust = isChargedNow
-                    ? _bridge.EstimateSingleHitDamage(skillId, ally, enemy, aff, false, true, config.RespectAnalysisState) * skill.ExpectedHits
+                    ? AdjustDamageForAilmentProjection(
+                        skill, elem,
+                        _bridge.EstimateSingleHitDamage(skillId, ally, enemy, aff, false, true, config.RespectAnalysisState) * skill.ExpectedHits)
                     : next;
 
                 if (next > bestAnyNext)

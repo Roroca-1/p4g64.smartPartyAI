@@ -113,7 +113,7 @@ public sealed unsafe class NativeBattleBridge : IBattleEngineBridge
         if (enemies.Count == 0)
             return null;
 
-        bool isOneMore = _native.IsUnitOn1More(actorUnitPtr) != 0;
+        bool isOneMore = *(byte*)(actorUnitPtr + P4GNative.OffUnitIsOnOneMore) != 0;
         var rawOrder = new List<CombatantSnapshot>(P4GNative.BattleTurnQueueCapacity);
         var upcomingOrder = new List<CombatantSnapshot>(P4GNative.BattleTurnQueueCapacity);
         nint* queueArr = (nint*)(battleMgr + P4GNative.OffBattleMgrTurnQueue);
@@ -122,7 +122,7 @@ public sealed unsafe class NativeBattleBridge : IBattleEngineBridge
             nint qUnit = queueArr[i];
             if (qUnit == 0)
                 break;
-            if (!isOneMore && i == 0 && qUnit == actorUnitPtr)
+            if (i == 0 && qUnit == actorUnitPtr)
                 continue;
             if (unitByPtr.TryGetValue(qUnit, out var qSnap))
             {
@@ -537,6 +537,8 @@ public sealed unsafe class NativeBattleBridge : IBattleEngineBridge
 
     public bool IsKnownWeakness(CombatantSnapshot target, ElementId element, AffinityInfo aff) =>
         aff.IsWeak && !aff.BlockedByShield && !target.IsGuarding && !target.HasWallForElement(element);
+
+    public bool IncludesAttackerStatusMultipliersInDamage => true;
 
     private int CallNativeCalcDamageClean(ushort skillId, nint attackerComb, nint targetComb)
     {

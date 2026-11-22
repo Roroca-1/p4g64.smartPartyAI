@@ -168,8 +168,8 @@ internal sealed class DefenseAndTelegraphEvaluator
         if (!config.EnableTelegraphGuard || livingEnemies.Count == 0)
             return null;
 
-        // If the party member can finish the entire fight right now, never waste the kill turn Guarding
-        if (bestOffense?.FinishesBattle == true)
+        // If the party member can finish the entire fight right now or already holds Shield of Justice, never waste the turn Guarding
+        if (bestOffense?.FinishesBattle == true || battle.Actor.HasShieldOfJustice)
             return null;
 
         if (threats.MustGuardUltimate)
@@ -217,7 +217,7 @@ internal sealed class DefenseAndTelegraphEvaluator
         if (!config.EnableTelegraphGuard || livingEnemies.Count == 0 || (!threats.AnyBossCharged && !threats.MustGuardUltimate))
             return null;
 
-        if (bestOffense?.FinishesBattle == true || !battle.Allies.Any(a => a.IsDead))
+        if (bestOffense?.FinishesBattle == true || battle.Actor.HasShieldOfJustice || !battle.Allies.Any(a => a.IsDead))
             return null;
 
         if (threats.MustGuardUltimate)
@@ -406,8 +406,8 @@ internal sealed class DefenseAndTelegraphEvaluator
             }
         }
 
-        // Never abandon an immediate kill or All-Out Attack trigger for generic reactive Guarding
-        if (allowGenericChargeGuard && bestOffense?.FinishesBattle != true &&
+        // Never abandon an immediate kill or All-Out Attack trigger (or waste Shield of Justice) for generic reactive Guarding
+        if (allowGenericChargeGuard && !actor.HasShieldOfJustice && bestOffense?.FinishesBattle != true &&
             bestOffense?.TriggersAllOutAttack != true && bestOffense?.KillsAny != true)
         {
             double weakGuardHpCap = actor.Tactic == TacticMode.HealSupport ? 0.65 : 0.50;

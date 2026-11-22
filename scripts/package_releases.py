@@ -181,7 +181,11 @@ def generate_preview_png(out_path: Path) -> None:
     draw.text((42, 412), f"v{VERSION}  •  All 4 Tactics Overhauled", font=f_bot, fill=dark)
     draw.text((42, 446), "Full Assault | Conserve SP | Heal | Act Freely", font=f_sub, fill=(35, 38, 48, 255))
 
-    img.convert("RGB").save(out_path, "PNG", optimize=True)
+    img.convert("RGB").quantize(
+        colors=64,
+        method=Image.Quantize.MEDIANCUT,
+        dither=Image.Dither.NONE,
+    ).save(out_path, "PNG", optimize=True)
 
 
 def verify_xxhash_reference() -> None:
@@ -311,12 +315,11 @@ def main() -> None:
 A native C# Reloaded-II overhaul for **Persona 4 Golden (PC 64-bit)** that replaces the vanilla party member AI tactics engine with deterministic `SKILL.TBL` combat math, 2-step `1 More` lookahead, team Value-of-Setup buffs/debuffs, turn-order reviving & anti-wipe triage, smart element probing, ailment curing, and boss telegraph guarding.
 
 ## What's New in v{VERSION}
-- **Performance & Native Caching**: Added static `SKILL.TBL` caching and per-turn snapshot caching in `NativeBattleBridge` (native damage calculations, affinities, costs, usability, attack element, and consumables), removed redundant `TeamOffenseContext` / `EvaluateChargeAction` / `AnalyzeTelegraphedThreats` passes per turn, and skipped empty `0` Persona skill slots across all evaluator loops.
-- **Bug Fixes**: Fixed single-target Break fallback targeting the wrong enemy slot, fixed heuristic `Rebellion` counting empty skill slots as Physical skills, fixed verified `StateFlags` bitmasks (`0x02` Rage, `0x04` Fear, `0x08` Silence, `0x10` Confuse, `0x20` Poison, `0x40` Exhaust, `0x80` Enervate), fixed shifted boss unit IDs / guard-lock edge cases, and added verified cure skill names (`Re Patra`, `Posumudi`, `Mutudi`, `Enradi`, `Tirundi`, `Nervundi`, `Energy Shower`).
-- **Turn-Order Reviving & Anti-Wipe Survival Triage**: Revives downed allies in turn/Agility order (e.g., Yukiko before Chie when Yosuke acts), filters telegraph/charge-weak revives, prioritizes critical self/Protagonist healing over risky partial-HP revives, stabilizes low-HP survivors before chaining boss revives, and hardens Charged-boss survival guards.
-- **Team Value-of-Setup, Buff Durations & Enemy Ailments**: Reads live `EFFECT.TBL` stage multipliers (`0x140ec09c0`) and 4-bit remaining buff/debuff durations (`Combatant + 0x25`) for proactive buff/debuff refreshes, Charge deferral, and enemy ailment / `Ghastly Wail` evaluation.
-- **Smart Element Probing & Consumables**: Probes unrevealed weaknesses on boss adds (e.g., Shadow Kanji's guards) and tough regular shadows while keeping `Bufu` preferred over `Mabufu` on single targets; supports hybrid HP+Cure consumables (`#795..#797`) and clean `Act Freely` ailment-cure scoring.
-- **Verified**: `61/61` xUnit tests passing, `0` warnings / `0` errors on Release build.
+- **Fixed Real `1 More` Detection (`BattleUnit + 0x30`)**: Replaced the misidentified Player-Advantage Turn-1 check (`0x1400620B0`) with the verified per-unit `1 More` flag (`BattleUnit + 0x30`) and ensured the active unit at turn-queue index `0` is always skipped. Turn-1 Player Advantage ambushes now allow Charge/buffs, and real `1 More` turns are detected accurately.
+- **Fixed `1 More` Damage-Item Follow-up Lookahead**: `Act Freely`, `Heal/Support`, and `Conserve SP` no longer hallucinate neutral chip damage items in `1 More` lookahead that won't be used on the actual `1 More` turn; AoE `1 More` follow-ups now score lethal kills and chain knockdowns consistently with single-target follow-ups.
+- **Fixed Poison / Rage Cured-Damage Math, Charge & `Shield of Justice`**: Properly undoes native `CalcSkillDamage` status modifiers (`0.70x` Phys-only Poison, `2.0x` Rage) during cured-ally projection, adds multi-round Poison bleed valuation in `Act Freely`, excludes fixed-power / percent-HP skills from Power/Mind Charge math, and skips redundant Guarding while `Shield of Justice` is active.
+- **Efficiency, Lifecycle & Smaller Package**: Eliminated duplicate `BuildTeamContext` passes per turn, reduced hot-path allocations (`Dictionary`/`HashSet`/LINQ) in `OffenseEvaluator` and `TeamOffenseEstimator`, disposed `FileSystemWatcher` cleanly, and quantized `Preview.png` (~64% smaller icon).
+- **Verified**: `66/66` xUnit tests passing, `0` warnings / `0` errors on Release build.
 
 ## Credits & AI Assistance Disclosure
 - **Project Lead, Design & Live Testing**: Alex Liu (`Kanasara` / `Roroca-1`)

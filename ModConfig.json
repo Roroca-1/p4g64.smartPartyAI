@@ -2,7 +2,7 @@
   "ModId": "p4g64.smartPartyAI",
   "ModName": "Smart Party AI Overhaul",
   "ModAuthor": "Kanasara & Lyra",
-  "ModVersion": "1.1.0",
+  "ModVersion": "1.1.1",
   "ModDescription": "Overhauls party AI tactics (Full Assault, Conserve SP, Heal/Support, Act Freely) with true SKILL.TBL damage & multi-hit math, 1-More 2-step lookahead, team Value-of-Setup buffs/debuffs, smart boss-add element probing, turn-order reviving & anti-wipe triage, ailment curing, and boss telegraph guarding.",
   "ModDll": "p4g64.smartPartyAI.dll",
   "ModIcon": "Preview.png",
@@ -38,7 +38,7 @@
       "UserName": "Roroca-1",
       "RepositoryName": "p4g64.smartPartyAI",
       "UseReleaseTag": true,
-      "AssetFileName": "p4g64.smartPartyAI1.1.0.zip"
+      "AssetFileName": "p4g64.smartPartyAI1.1.1.zip"
     }
   },
   "IsUniversalMod": false,

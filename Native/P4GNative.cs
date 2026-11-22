@@ -27,7 +27,6 @@ public sealed unsafe class P4GNative
     // Verified Native Function RVAs (VA - 0x140000000)
     public const long RvaBtlAiStateUpdate = 0x04B0A0;
     public const long RvaCanUnitUseSkill = 0x0639F0;
-    public const long RvaIsUnitOn1More = 0x0620B0;
     public const long RvaResolveAiActionTargets = 0x064F50;
     public const long RvaSetAiAction = 0x0697F0;
     public const long RvaIsAffinityRevealed = 0x0A8AD0;
@@ -43,15 +42,16 @@ public sealed unsafe class P4GNative
     public const long RvaGetRand = 0x520960;
 
     // Struct field offsets verified via P4G.exe disassembly
-    public const int OffBattleMgrOneMoreSide = 0x1E;   // ushort: 1 = Party 1 More, 2 = Enemy 1 More
+    public const int OffBattleMgrAdvantage = 0x1E;     // ushort: 0 = Normal, 1 = Player Advantage, 2 = Enemy Advantage
     public const int OffBattleMgrUnitListHead = 0x1C0; // BattleUnit*
     public const int OffBattleMgrTurnQueue = 0x398;    // BattleUnit*[12] current round execution order
     public const int BattleTurnQueueCapacity = 12;
-    public const int OffBattleMgrOneMoreUnit = 0x3F8;  // BattleUnit* currently acting on 1 More
+    public const int OffBattleMgrOneMoreUnit = 0x3F8;  // BattleUnit*
 
     public const int OffUnitSlotId = 0x08;      // int
     public const int OffUnitState = 0x0C;       // ushort (0x11 = AI ready to execute)
     public const int OffUnitFlags = 0x20;       // uint ((flags & 0x9) == 0x9 active/targetable)
+    public const int OffUnitIsOnOneMore = 0x30; // byte: non-zero while unit is taking its 1 More bonus turn (0x1400487ad, 0x14005cd13)
     public const int OffUnitDataPtr = 0x38;     // UnitData*
     public const int OffUnitTargets = 0x48;     // BattleUnit*[...]
     public const int OffUnitAiRunning = 0xA8;   // byte
@@ -92,9 +92,6 @@ public sealed unsafe class P4GNative
 
     [Function(CallingConventions.Microsoft)]
     public delegate int CanUnitUseSkillDel(nint unit, ushort skillId);
-
-    [Function(CallingConventions.Microsoft)]
-    public delegate int IsUnitOn1MoreDel(nint unit);
 
     [Function(CallingConventions.Microsoft)]
     public delegate int ResolveAiActionTargetsDel(nint unit, int arg2);
@@ -146,7 +143,6 @@ public sealed unsafe class P4GNative
     public nint BaseAddress { get; }
 
     public CanUnitUseSkillDel CanUnitUseSkill { get; }
-    public IsUnitOn1MoreDel IsUnitOn1More { get; }
     public ResolveAiActionTargetsDel ResolveAiActionTargets { get; }
     public SetAiActionDel SetAiAction { get; }
     public IsAffinityRevealedDel IsAffinityRevealed { get; }
@@ -165,7 +161,6 @@ public sealed unsafe class P4GNative
         BaseAddress = Process.GetCurrentProcess().MainModule!.BaseAddress;
 
         CanUnitUseSkill = hooks.CreateWrapper<CanUnitUseSkillDel>(BaseAddress + RvaCanUnitUseSkill, out _);
-        IsUnitOn1More = hooks.CreateWrapper<IsUnitOn1MoreDel>(BaseAddress + RvaIsUnitOn1More, out _);
         ResolveAiActionTargets = hooks.CreateWrapper<ResolveAiActionTargetsDel>(BaseAddress + RvaResolveAiActionTargets, out _);
         SetAiAction = hooks.CreateWrapper<SetAiActionDel>(BaseAddress + RvaSetAiAction, out _);
         IsAffinityRevealed = hooks.CreateWrapper<IsAffinityRevealedDel>(BaseAddress + RvaIsAffinityRevealed, out _);

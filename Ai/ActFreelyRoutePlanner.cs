@@ -139,7 +139,7 @@ internal sealed class ActFreelyRoutePlanner
                 return emergencyHeal;
         }
 
-        var primaryEnemy = AiCombatHelpers.SelectPrimaryEnemy(livingEnemies, bestAttack);
+        var primaryEnemy = AiCombatHelpers.SelectMaxCurrentHpEnemy(livingEnemies);
         var teamCtx = _estimator.BuildTeamContext(battle, config, livingAllies, livingEnemies, primaryEnemy, bestAttack);
 
         // 5. Lifesaving ailment cure (e.g. Poison lethal tick before enemy turn, Confuse/Charm sabotage, MC Down unlocking AOA).

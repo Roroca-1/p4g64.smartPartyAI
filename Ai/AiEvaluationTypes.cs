@@ -86,29 +86,6 @@ internal static class AiCombatHelpers
         return result;
     }
 
-    public static CombatantSnapshot SelectPrimaryEnemy(
-        List<CombatantSnapshot> livingEnemies,
-        EvaluatedOffense? bestAttack)
-    {
-        var decisionTarget = bestAttack?.Decision.Targets == null ? bestAttack?.Decision.Target : null;
-        if (decisionTarget != null)
-        {
-            for (int i = 0; i < livingEnemies.Count; i++)
-            {
-                if (ReferenceEquals(livingEnemies[i], decisionTarget))
-                    return decisionTarget;
-            }
-        }
-
-        CombatantSnapshot best = livingEnemies[0];
-        for (int i = 1; i < livingEnemies.Count; i++)
-        {
-            if (livingEnemies[i].MaxHp > best.MaxHp)
-                best = livingEnemies[i];
-        }
-        return best;
-    }
-
     public static CombatantSnapshot SelectMaxCurrentHpEnemy(List<CombatantSnapshot> livingEnemies)
     {
         CombatantSnapshot best = livingEnemies[0];

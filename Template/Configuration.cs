@@ -8,7 +8,7 @@ namespace p4g64.smartPartyAI;
 /// <summary>
 /// Base class for Reloaded-II JSON-serialized mod configurations with live reload support.
 /// </summary>
-public class Configurable<TConfig> : IUpdatableConfigurable where TConfig : Configurable<TConfig>, new()
+public class Configurable<TConfig> : IUpdatableConfigurable, IDisposable where TConfig : Configurable<TConfig>, new()
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -31,7 +31,7 @@ public class Configurable<TConfig> : IUpdatableConfigurable where TConfig : Conf
 
     public event Action<IUpdatableConfigurable>? ConfigurationUpdated;
 
-    public void Initialize(string filePath)
+    public void Initialize(string filePath, bool watchForChanges = true)
     {
         FilePath = filePath;
         Save = SaveToFile;
@@ -40,10 +40,11 @@ public class Configurable<TConfig> : IUpdatableConfigurable where TConfig : Conf
         if (!File.Exists(filePath))
             SaveToFile();
 
-        StartWatcher();
+        if (watchForChanges)
+            StartWatcher();
     }
 
-    public static TConfig Load(string filePath)
+    public static TConfig Load(string filePath, bool watchForChanges = true)
     {
         TConfig config;
         bool rewrite = false;
@@ -73,10 +74,21 @@ public class Configurable<TConfig> : IUpdatableConfigurable where TConfig : Conf
             config = new TConfig();
         }
 
-        config.Initialize(filePath);
+        config.Initialize(filePath, watchForChanges);
         if (rewrite)
             config.SaveToFile();
         return config;
+    }
+
+    public void Dispose()
+    {
+        if (_watcher != null)
+        {
+            _watcher.EnableRaisingEvents = false;
+            _watcher.Dispose();
+            _watcher = null;
+        }
+        GC.SuppressFinalize(this);
     }
 
     private void SaveToFile()
@@ -154,7 +166,7 @@ public class Configurator : IConfiguratorV1, IConfiguratorV2, IConfiguratorV3
     {
         var dir = !string.IsNullOrEmpty(_configDirectory) ? _configDirectory : _modDirectory;
         var path = Path.Combine(dir, "Config.json");
-        return new IConfigurable[] { Configurable<Config>.Load(path) };
+        return new IConfigurable[] { Configurable<Config>.Load(path, watchForChanges: false) };
     }
 
     public bool TryRunCustomConfiguration() => false;

@@ -332,6 +332,11 @@ public interface IBattleEngineBridge
             : new AffinityInfo { IsRevealed = true, MultiplierPercent = 100 };
     double EstimateSingleHitDamage(ushort skillId, CombatantSnapshot attacker, CombatantSnapshot target, AffinityInfo effectiveAffinity, bool assumeChargedOverride, bool assumeUnchargedOverride, bool respectAnalysis);
     bool IsKnownWeakness(CombatantSnapshot target, ElementId element, AffinityInfo aff);
+    /// <summary>
+    /// True when EstimateSingleHitDamage already includes attacker Poison (0.70x Phys) and Rage (2.0x)
+    /// modifiers (live native CalcSkillDamage), false in synthetic mocks returning raw table damage.
+    /// </summary>
+    bool IncludesAttackerStatusMultipliersInDamage => false;
     IReadOnlyList<SpRecoveryItemInfo> GetAvailableSpRecoveryItems(CombatantSnapshot beneficiary);
     IReadOnlyList<BattleConsumableInfo> GetAvailableConsumables(CombatantSnapshot actor);
     double GetOffensiveBuffMultiplier();

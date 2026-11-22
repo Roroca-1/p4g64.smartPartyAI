@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.1 (2026-11-22)
+- **Bug Fixes**:
+  - **Fixed real `1 More` detection (`BattleUnit + 0x30`)**: Replaced the misidentified `0x1400620B0` check (which actually checked Player Advantage Turn 1) with the verified per-unit `1 More` active byte (`BattleUnit + 0x30`, verified at `0x1400487ad`, `0x140048e35`, `0x14005cd13`, `0x14005d164`), and fixed `UpcomingRoundTurnOrder` / `RawRoundTurnOrder` to always skip the currently acting unit at queue index `0`. Party members now properly allow Turn-1 Charge/buffs on Player Advantage ambushes and accurately recognize real `1 More` bonus turns.
+  - **Fixed `1 More` follow-up item hallucination**: Aligned `SimulateBestOneMoreFollowupAoE` item gating with `Act Freely`, `Heal/Support`, and `Conserve SP` rules so lookahead never projects neutral chip damage items that the AI would reject on the actual `1 More` turn, and added consistent kill / chain-knockdown bonuses to AoE `1 More` follow-ups.
+  - **Fixed Poison / Rage cured-damage projection & multi-round Poison bleed**: `ProjectAllyPotentialIfCured` now cleanly undoes native `CalcSkillDamage` status modifiers (`0.70x` Phys-only Poison and `2.0x` Rage) instead of double-penalizing Phys or fabricating Magic penalties; added calibrated multi-round Poison HP-bleed valuation in `Act Freely` for longer boss fights.
+  - **Fixed Charge evaluation**: Excluded fixed-power (`EffectType 4/13/18`) and percent-HP (`EffectType 8`) skills from Power/Mind Charge `2.5x` math and applied accuracy weighting.
+  - **Fixed `Shield of Justice` guard waste**: Party members holding `Shield of Justice` no longer waste turns Guarding against telegraphed ultimates or Charged bosses.
+  - **Fixed config watcher lifecycle**: Implemented `IDisposable` on `Configurable<TConfig>` to dispose `FileSystemWatcher` on unload and disabled unnecessary watchers in `Configurator.GetConfigurations()`.
+- **Efficiency & Package Size**:
+  - Eliminated duplicate `BuildTeamContext` evaluations per turn across `Act Freely`, `Full Assault`, `Heal/Support`, and `Conserve SP`.
+  - Replaced hot-path `Dictionary` / `HashSet` / LINQ allocations in `OffenseEvaluator` and `TeamOffenseEstimator` with lazy indexed arrays, `stackalloc`, and single-pass loops.
+  - Quantized `Preview.png` to an 8-bit indexed PNG (`26.5 KB -> 9.5 KB`, ~64% smaller) for a leaner release package.
+- **Tests**: Expanded offline xUnit suite from 61 to 66 passing tests (`0` warnings, `0` errors).
+
 ## 1.1.0 (2026-11-20)
 - **Performance & Native Caching**: Added static `SKILL.TBL` caching and per-turn snapshot caching in `NativeBattleBridge` (native `CalcSkillDamage`, affinities, skill usability/costs, attack element, consumables, and `EFFECT.TBL` stage multipliers), eliminated duplicate `TeamOffenseContext`, `EvaluateChargeAction`, and `AnalyzeTelegraphedThreats` passes per turn, removed reflection/boxing in `GetAttackElement`, and skipped empty `0` Persona skill slots across all evaluator loops.
 - **Bug Fixes**:

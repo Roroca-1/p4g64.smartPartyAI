@@ -13,6 +13,7 @@ internal sealed class MockBattleBridge : IBattleEngineBridge
     public Dictionary<(CombatantSnapshot attacker, ushort skillId, CombatantSnapshot target), double> ActorSingleHitDamages { get; } = new();
     public double OffensiveBuffMultiplier { get; set; } = 1.40;
     public double DefenseDebuffMultiplier { get; set; } = 1.40;
+    public bool IncludesAttackerStatusMultipliersInDamage { get; set; } = false;
 
     public double GetOffensiveBuffMultiplier() => OffensiveBuffMultiplier;
     public double GetDefenseDebuffMultiplier() => DefenseDebuffMultiplier;
@@ -281,7 +282,8 @@ public sealed class SmartPartyAiTests
         int? hitEvaStageTurns = null,
         int? critRateStageTurns = null,
         int? revolutionCritStageTurns = null,
-        int agility = 0) => new()
+        int agility = 0,
+        bool shieldOfJustice = false) => new()
     {
         UnitPtr = (nint)(0x1000 + unitId * 0x10),
         CombatantPtr = (nint)(0x2000 + unitId * 0x10),
@@ -297,6 +299,7 @@ public sealed class SmartPartyAiTests
         Agility = agility,
         EquippedSkills = skills,
         ChargeFlags = (powerCharge ? 0x80000u : 0u) | (mindCharge ? 0x100000u : 0u),
+        ShieldFlags = shieldOfJustice ? (ushort)1 : (ushort)0,
         StateFlags = stateFlags,
         HasRedWall = redWall,
         AtkStage = atkStage,
@@ -3880,5 +3883,240 @@ public sealed class SmartPartyAiTests
         Assert.Equal("Tirundi", SkillCatalog.GetSkillName(205));
         Assert.Equal("Nervundi", SkillCatalog.GetSkillName(206));
         Assert.Equal("Energy Shower", SkillCatalog.GetSkillName(207));
+    }
+
+    [Fact]
+    public void OneMoreFollowup_ActFreelyAndConserveSp_NeverHallucinateBlockedNeutralChipItems()
+    {
+        var bridge = CreateStandardSkillDatabase();
+        var engine = new SmartPartyAiEngine(bridge);
+        var cfg = DefaultConfig();
+
+        var kanji = MakeEnemy(259, 0, 2000, 2000);
+        var niceGuy = MakeEnemy(272, 1, 700, 800);
+        var toughDown = MakeEnemy(273, 2, 2200, 2500, isDown: true);
+
+        bridge.Affinities[(niceGuy, ElementId.Ice)] = new AffinityInfo { IsWeak = true, IsRevealed = true, MultiplierPercent = 125 };
+        bridge.Affinities[(niceGuy, ElementId.Fire)] = new AffinityInfo { IsNull = true, IsRevealed = true, MultiplierPercent = 0 };
+        bridge.Affinities[(toughDown, ElementId.Ice)] = new AffinityInfo { IsNull = true, IsRevealed = true, MultiplierPercent = 0 };
+        bridge.Affinities[(toughDown, ElementId.Fire)] = new AffinityInfo { IsWeak = true, IsRevealed = true, MultiplierPercent = 125 };
+        bridge.Affinities[(kanji, ElementId.Fire)] = new AffinityInfo { IsRevealed = true, MultiplierPercent = 100 };
+        bridge.Affinities[(kanji, ElementId.Ice)] = new AffinityInfo { IsRevealed = true, MultiplierPercent = 100 };
+
+        var dryIceSkill = new SkillMetadata { SkillId = 320, Name = "Dry Ice", Element = ElementId.Ice, Scope = 0, TargetSide = 2, EffectType = 4, Power = 50 };
+        var aoeChipSkill = new SkillMetadata { SkillId = 321, Name = "Mega Bomb", Element = ElementId.Almighty, Scope = 1, TargetSide = 2, EffectType = 4, Power = 100 };
+        bridge.AvailableConsumables.Add(new BattleConsumableInfo
+        {
+            ItemId = 808, Name = "Dry Ice", SkillId = 320, Quantity = 3,
+            Kind = BattleConsumableKind.Damage, Rarity = ConsumableRarityTier.Common, Skill = dryIceSkill
+        });
+        bridge.AvailableConsumables.Add(new BattleConsumableInfo
+        {
+            ItemId = 814, Name = "Mega Bomb", SkillId = 321, Quantity = 3,
+            Kind = BattleConsumableKind.Damage, Rarity = ConsumableRarityTier.Mid, Skill = aoeChipSkill
+        });
+
+        // 1. ActFreely: Dry Ice (50) must NOT hallucinate neutral-chip Mega Bomb (100x3 - 55 = 245) as its 1-More follow-up;
+        //    only legal skills (Maragi / Attack) can be projected on the 1-More turn.
+        var yukiko = MakeParty(4, TacticMode.ActFreely, 192, 192, 162, 206, new ushort[] { 4 });
+        bridge.SingleHitDamages[(320, niceGuy)] = 50.0;
+        bridge.SingleHitDamages[(321, kanji)] = 100.0;
+        bridge.SingleHitDamages[(321, niceGuy)] = 100.0;
+        bridge.SingleHitDamages[(321, toughDown)] = 100.0;
+        bridge.SingleHitDamages[(0, toughDown)] = 151.0;
+        bridge.SingleHitDamages[(0, kanji)] = 60.0;
+        bridge.SingleHitDamages[(0, niceGuy)] = 60.0;
+        bridge.SingleHitDamages[(4, kanji)] = 80.0;
+        bridge.SingleHitDamages[(4, toughDown)] = 120.0;
+
+        var dActFreely = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = yukiko,
+            Allies = new() { yukiko },
+            Enemies = new() { kanji, niceGuy, toughDown }
+        }, cfg)!;
+        Assert.DoesNotContain("Mega Bomb", dActFreely.Reason);
+
+        // 2. FullAssault (AllowDamageItemOutrank = true) DOES allow neutral-chip Mega Bomb follow-up when it outranks skills
+        var yukikoAssault = MakeParty(4, TacticMode.FullAssault, 192, 192, 162, 206, new ushort[] { 4 });
+        var dFullAssault = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = yukikoAssault,
+            Allies = new() { yukikoAssault },
+            Enemies = new() { kanji, niceGuy, toughDown }
+        }, cfg)!;
+        Assert.Contains("Mega Bomb", dFullAssault.Reason);
+
+        // 3. Conserve SP never uses damage items in 1-More follow-up projections either
+        var chieConserve = MakeParty(3, TacticMode.ConserveSp, 226, 226, 96, 106, new ushort[] { 26 }); // Bufu (4 SP)
+        bridge.SingleHitDamages[(26, niceGuy)] = 40.0;
+        bridge.SingleHitDamages[(0, toughDown)] = 140.0;
+        var dConserve = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = chieConserve,
+            Allies = new() { chieConserve },
+            Enemies = new() { kanji, niceGuy, toughDown }
+        }, cfg)!;
+        Assert.DoesNotContain("Mega Bomb", dConserve.Reason);
+    }
+
+    [Fact]
+    public void ActFreely_PoisonAndRageCureMath_RespectsPhysOnlyPoison_AndMultiRoundBossBleed()
+    {
+        var bridge = CreateStandardSkillDatabase();
+        bridge.IncludesAttackerStatusMultipliersInDamage = true;
+        bridge.Skills[202] = new SkillMetadata
+        {
+            SkillId = 202, Name = "Posumudi", Element = ElementId.Recovery,
+            CostType = 2, BaseCost = 5, Scope = 0, TargetSide = 1, EffectType = 0, AilmentMask = 0x20
+        };
+        bridge.Skills[208] = new SkillMetadata
+        {
+            SkillId = 208, Name = "Amrita", Element = ElementId.Recovery,
+            CostType = 2, BaseCost = 12, Scope = 1, TargetSide = 1, EffectType = 0, AilmentMask = 0xFF
+        };
+
+        var engine = new SmartPartyAiEngine(bridge);
+        var cfg = DefaultConfig();
+
+        var boss = MakeEnemy(259, 0, 2000, 2000);
+        bridge.Affinities[(boss, ElementId.Fire)] = new AffinityInfo { IsRevealed = true, MultiplierPercent = 100 };
+        bridge.Affinities[(boss, ElementId.Phys)] = new AffinityInfo { IsRevealed = true, MultiplierPercent = 100 };
+
+        // 1. Healthy Poisoned Magic caster (Yukiko, 95% HP, Agidyne=300): Poison does NOT reduce Magic damage in P4G,
+        //    so Chie (Attack=160) with Posumudi must NOT waste a turn curing healthy Magic-only Yukiko!
+        var yukikoMagicPoisoned = MakeParty(4, TacticMode.FullAssault, 190, 200, 150, 150, new ushort[] { 3 }, stateFlags: 0x20);
+        var supportActor = MakeParty(8, TacticMode.ActFreely, 300, 300, 150, 150, new ushort[] { 202, 122 });
+        bridge.ActorSingleHitDamages[(yukikoMagicPoisoned, 3, boss)] = 300.0;
+        bridge.ActorSingleHitDamages[(supportActor, 122, boss)] = 160.0;
+
+        var dHealthyMagic = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = supportActor,
+            Allies = new() { supportActor, yukikoMagicPoisoned },
+            Enemies = new() { boss },
+            UpcomingRoundTurnOrder = new List<CombatantSnapshot> { yukikoMagicPoisoned, boss }
+        }, cfg)!;
+        Assert.Equal((ushort)122, dHealthyMagic.SkillId);
+
+        // 2. Multi-round boss fight where BOTH MC and Yosuke (Phys) are Poisoned at ~55% HP:
+        //    AoE Amrita recovers Phys penalty + multi-round HP bleed for both allies, outscoring a 160-dmg attack!
+        var mcPoisoned = MakeParty(1, TacticMode.DirectCommands, 150, 280, 120, 120, new ushort[] { 122 }, stateFlags: 0x20);
+        var yosukePoisoned = MakeParty(2, TacticMode.ActFreely, 140, 260, 100, 150, new ushort[] { 122 }, stateFlags: 0x20);
+        var amritaSupport = MakeParty(4, TacticMode.ActFreely, 220, 220, 150, 180, new ushort[] { 208, 1 });
+        // Native bridge already includes 0.70x Phys Poison penalty on MC & Yosuke (e.g. 140 raw -> 200 cured)
+        bridge.ActorSingleHitDamages[(mcPoisoned, 122, boss)] = 140.0;
+        bridge.ActorSingleHitDamages[(yosukePoisoned, 122, boss)] = 140.0;
+        bridge.ActorSingleHitDamages[(amritaSupport, 1, boss)] = 150.0;
+
+        var dMultiPoison = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = amritaSupport,
+            Allies = new() { mcPoisoned, yosukePoisoned, amritaSupport },
+            Enemies = new() { boss },
+            UpcomingRoundTurnOrder = new List<CombatantSnapshot> { mcPoisoned, yosukePoisoned, boss }
+        }, cfg)!;
+        Assert.Equal(AiActionKind.Skill, dMultiPoison.ActionKind);
+        Assert.Equal((ushort)208, dMultiPoison.SkillId);
+    }
+
+    [Fact]
+    public void ChargeAction_SkipsFixedPowerAndPercentHpSkills()
+    {
+        var bridge = CreateStandardSkillDatabase();
+        bridge.Skills[66] = new SkillMetadata
+        {
+            SkillId = 66, Name = "Divine Judgement", Element = ElementId.Light,
+            CostType = 2, BaseCost = 48, Scope = 0, TargetSide = 2, EffectType = 8, Power = 50, AilmentMask = 0x80000
+        };
+        bridge.Skills[330] = new SkillMetadata
+        {
+            SkillId = 330, Name = "Fixed Blast", Element = ElementId.Almighty,
+            CostType = 2, BaseCost = 10, Scope = 0, TargetSide = 2, EffectType = 4, Power = 250
+        };
+
+        var engine = new SmartPartyAiEngine(bridge);
+        var cfg = DefaultConfig();
+        var boss = MakeEnemy(260, 0, 2000, 2000);
+        var naoto = MakeParty(7, TacticMode.FullAssault, 340, 340, 200, 200, new ushort[] { 228, 66, 330 });
+        bridge.SingleHitDamages[(66, boss)] = 1000.0;
+        bridge.SingleHitDamages[(330, boss)] = 250.0;
+
+        var d = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = naoto,
+            Allies = new() { naoto },
+            Enemies = new() { boss }
+        }, cfg)!;
+
+        // Mind Charge (228) does NOT multiply EffectType 8 (HP-halving) or EffectType 4 (fixed damage)
+        Assert.NotEqual((ushort)228, d.SkillId);
+        Assert.Equal((ushort)66, d.SkillId);
+    }
+
+    [Fact]
+    public void TelegraphAndChargeGuard_SkipsGuardingWhenActorHasShieldOfJustice()
+    {
+        var bridge = CreateStandardSkillDatabase();
+        var engine = new SmartPartyAiEngine(bridge);
+        var cfg = DefaultConfig();
+
+        // Shadow Teddie telegraphing Nihil Hand (MustGuardUltimate = true) while Chie already holds Shield of Justice
+        var shadowTeddie = MakeEnemy(261, 0, 3000, 3000, lastActionType: 7, waitMessageId: 169);
+        var chieShielded = MakeParty(3, TacticMode.ActFreely, 120, 300, 100, 100, new ushort[] { 138 }, shieldOfJustice: true);
+        bridge.SingleHitDamages[(138, shadowTeddie)] = 350.0;
+
+        var dUltimate = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = chieShielded,
+            Allies = new() { chieShielded },
+            Enemies = new() { shadowTeddie }
+        }, cfg)!;
+        Assert.NotEqual(AiActionKind.Guard, dUltimate.ActionKind);
+        Assert.Equal((ushort)138, dUltimate.SkillId);
+
+        // Power-Charged boss with wounded actor who already holds Shield of Justice -> attacks instead of wasting Shield guarding
+        var chargedBoss = MakeEnemy(259, 0, 2000, 2000, powerCharge: true);
+        bridge.SingleHitDamages[(138, chargedBoss)] = 350.0;
+        var dCharged = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = chieShielded,
+            Allies = new() { chieShielded },
+            Enemies = new() { chargedBoss }
+        }, cfg)!;
+        Assert.NotEqual(AiActionKind.Guard, dCharged.ActionKind);
+        Assert.Equal((ushort)138, dCharged.SkillId);
+    }
+
+    [Fact]
+    public void OneMoreTurn_SkipsChargeAndBuffs_WhileNormalTurn1AllowsSetup()
+    {
+        var bridge = CreateStandardSkillDatabase();
+        var engine = new SmartPartyAiEngine(bridge);
+        var cfg = DefaultConfig();
+
+        var boss = MakeEnemy(259, 0, 2000, 2000);
+        var kanji = MakeParty(6, TacticMode.ActFreely, 400, 400, 120, 120, new ushort[] { 227, 219, 138 });
+        bridge.SingleHitDamages[(138, boss)] = 300.0;
+
+        // Normal Turn 1 (including Player Advantage): IsActorOnOneMore == false -> Power Charge (227) is allowed
+        var dNormal = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = kanji,
+            IsActorOnOneMore = false,
+            Allies = new() { kanji },
+            Enemies = new() { boss }
+        }, cfg)!;
+        Assert.Equal((ushort)227, dNormal.SkillId);
+
+        // Actual 1-More bonus turn: IsActorOnOneMore == true -> skips Power Charge / Matarukaja and attacks directly!
+        var dOneMore = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = kanji,
+            IsActorOnOneMore = true,
+            Allies = new() { kanji },
+            Enemies = new() { boss }
+        }, cfg)!;
+        Assert.Equal((ushort)138, dOneMore.SkillId);
     }
 }

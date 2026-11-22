@@ -71,7 +71,7 @@ public sealed class SmartPartyAiEngine
             hasPrecomputedCharge = true;
             bool wantsCharge = chargeEval != null && chargeEval.Score > directScore;
 
-            var primaryEnemy = AiCombatHelpers.SelectPrimaryEnemy(livingEnemies, bestAttack);
+            var primaryEnemy = AiCombatHelpers.SelectMaxCurrentHpEnemy(livingEnemies);
             var teamCtx = _estimator.BuildTeamContext(battle, config, livingAllies, livingEnemies, primaryEnemy, bestAttack);
             var offensiveSetup = _support.EvaluateOffensiveSetupForAssault(
                 battle, config, bestAttack, wantsCharge, livingAllies, livingEnemies, teamCtx, primaryEnemy);
@@ -116,19 +116,16 @@ public sealed class SmartPartyAiEngine
             SpCostWeight: 2.0,
             HpCostWeight: 0.15);
 
-        IReadOnlyList<BattleConsumableInfo>? allowedDamageItems = config.EnableDamageItemsInAi
-            ? _offense.GatherAllowedDamageItems(actor, config)
-            : null;
-
         // 1. Evaluate 0-SP options (Normal Attack + HP-cost Physical skills when HP is safe)
+        // Conserve SP never executes damage consumables, so exclude them from 1-More follow-up projections too.
         var freeCandidates = _offense.GatherCandidateAttackSkills(actor, zeroSpOnly: true, safeHpFloorPercent: safeHpPct);
-        var bestFree = _offense.EvaluateBestOffensiveAction(battle, config, freeCandidates, freeProfile, livingEnemies, allowedDamageItems);
+        var bestFree = _offense.EvaluateBestOffensiveAction(battle, config, freeCandidates, freeProfile, livingEnemies, allowedDamageItems: null);
 
         // Compute minimal-SP full-kill check when 0-SP cannot finish the whole encounter cleanly this turn
         var allCandidates = _offense.GatherCandidateAttackSkills(actor, zeroSpOnly: false, safeHpFloorPercent: safeHpPct);
         var bestMinimalSp = bestFree?.FinishesBattle == true
             ? null
-            : _offense.EvaluateBestOffensiveAction(battle, config, allCandidates, minimalSpProfile, livingEnemies, allowedDamageItems);
+            : _offense.EvaluateBestOffensiveAction(battle, config, allCandidates, minimalSpProfile, livingEnemies, allowedDamageItems: null);
         var effectiveFinishCheck = bestFree?.FinishesBattle == true
             ? bestFree
             : (bestMinimalSp?.FinishesBattle == true ? bestMinimalSp : bestFree);
@@ -155,7 +152,7 @@ public sealed class SmartPartyAiEngine
         CombatantSnapshot? primaryEnemy = null;
         if (livingEnemies.Count > 0 && livingAllies.Count > 0)
         {
-            primaryEnemy = AiCombatHelpers.SelectPrimaryEnemy(livingEnemies, bestFree ?? bestMinimalSp);
+            primaryEnemy = AiCombatHelpers.SelectMaxCurrentHpEnemy(livingEnemies);
             teamCtx = _estimator.BuildTeamContext(
                 battle, config, livingAllies, livingEnemies, primaryEnemy, bestFree ?? bestMinimalSp);
 
@@ -171,7 +168,7 @@ public sealed class SmartPartyAiEngine
             PreferLowCostTiebreak: true,
             SpCostWeight: 0.35,
             HpCostWeight: 0.20);
-        var cheapLookahead = _offense.EvaluateBestOffensiveAction(battle, config, allCandidates, cheapProfile, livingEnemies, allowedDamageItems);
+        var cheapLookahead = _offense.EvaluateBestOffensiveAction(battle, config, allCandidates, cheapProfile, livingEnemies, allowedDamageItems: null);
 
         double freeDirect = bestFree?.DirectDamage ?? 0.0;
         if (cheapLookahead != null &&
@@ -272,7 +269,7 @@ public sealed class SmartPartyAiEngine
         CombatantSnapshot? primaryEnemy = null;
         if (livingEnemies.Count > 0 && livingAllies.Count > 0)
         {
-            primaryEnemy = AiCombatHelpers.SelectPrimaryEnemy(livingEnemies, bestAttack);
+            primaryEnemy = AiCombatHelpers.SelectMaxCurrentHpEnemy(livingEnemies);
             teamCtx = _estimator.BuildTeamContext(battle, config, livingAllies, livingEnemies, primaryEnemy, bestAttack);
         }
 

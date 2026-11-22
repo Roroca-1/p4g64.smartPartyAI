@@ -18,6 +18,7 @@ public unsafe class Mod : IModV2
     private ILogger _logger = null!;
     private IReloadedHooks _hooks = null!;
     private Config _config = new();
+    private Config? _watchedConfig;
 
     private P4GNative _native = null!;
     private NativeBattleBridge _bridge = null!;
@@ -39,8 +40,9 @@ public unsafe class Mod : IModV2
                         ?? (loader as IModLoaderV2)?.GetDirectoryForModId(modConfig.ModId)
                         ?? AppContext.BaseDirectory;
         var configPath = Path.Combine(configDir, "Config.json");
-        _config = Configurable<Config>.Load(configPath);
-        _config.ConfigurationUpdated += updated =>
+        _watchedConfig = Configurable<Config>.Load(configPath);
+        _config = _watchedConfig;
+        _watchedConfig.ConfigurationUpdated += updated =>
         {
             if (updated is Config newCfg)
             {
@@ -273,9 +275,11 @@ public unsafe class Mod : IModV2
     public void Unload()
     {
         Disposing();
+        _watchedConfig?.Dispose();
+        _watchedConfig = null;
         _aiStateHook?.Disable();
         _randHook?.Disable();
     }
-    public bool CanUnload() => true;
+    public bool CanUnload() => false;
     public bool CanSuspend() => true;
 }

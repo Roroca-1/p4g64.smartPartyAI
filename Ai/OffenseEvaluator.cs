@@ -343,7 +343,7 @@ internal sealed class OffenseEvaluator
         if (grantsOneMore)
         {
             (followupDmg, followupNote) = SimulateBestOneMoreFollowup(
-                battle, config, skill, enemy, directDmg, spCost, hpCost, allCandidates, followupItems, item, profile.IgnoreOverkillCap);
+                battle, config, skill, enemy, directDmg, spCost, hpCost, livingEnemies, allCandidates, followupItems, item, profile);
         }
 
         double accWeight = GetAccuracyWeight(skill);
@@ -415,14 +415,17 @@ internal sealed class OffenseEvaluator
         Dictionary<CombatantSnapshot, bool>? revealedWeakCache)
     {
         var actor = battle.Actor;
+        int count = livingEnemies.Count;
         double totalRawDmg = 0.0;
         double totalCappedDmg = 0.0;
         int killCount = 0;
         bool knocksDownAny = false;
         bool anyRevealedTarget = false;
         int enemiesDamaged = 0;
-        var simHpByEnemy = new Dictionary<CombatantSnapshot, double>(livingEnemies.Count);
-        var simDownByEnemy = new Dictionary<CombatantSnapshot, bool>(livingEnemies.Count);
+        double[]? simHp = null;
+        bool[]? simDown = null;
+        bool anySurvivor = false;
+        bool allDownOrDead = true;
         bool canAoeProbe = item == null && (byte)skill.Element is >= (byte)ElementId.Fire and <= (byte)ElementId.Wind;
         double maxProbe = 0.0;
         double sumProbe = 0.0;
@@ -430,8 +433,9 @@ internal sealed class OffenseEvaluator
 
         bool canKnockDown = !skill.IsInstantKill && (skill.AilmentMask & 0x80000) == 0;
 
-        foreach (var enemy in livingEnemies)
+        for (int i = 0; i < count; i++)
         {
+            var enemy = livingEnemies[i];
             var aff = _bridge.QueryEffectiveAffinity(actor, enemy, skill.Element, config.RespectAnalysisState);
             if (AiCombatHelpers.IsUnsafeReflectOrDrain(enemy, skill.Element, aff))
                 return null;
@@ -471,8 +475,37 @@ internal sealed class OffenseEvaluator
                 }
             }
 
-            simHpByEnemy[enemy] = skill.IsInstantKill ? enemy.CurrentHp : Math.Max(0.0, enemy.CurrentHp - dmg);
-            simDownByEnemy[enemy] = !enemy.IsStanding || down;
+            double remHp = skill.IsInstantKill ? enemy.CurrentHp : Math.Max(0.0, enemy.CurrentHp - dmg);
+            bool postDown = !enemy.IsStanding || down;
+            if (remHp > 0.0)
+            {
+                anySurvivor = true;
+                if (!postDown)
+                    allDownOrDead = false;
+            }
+
+            if (knocksDownAny && simHp == null)
+            {
+                simHp = new double[count];
+                simDown = new bool[count];
+                for (int prev = 0; prev < i; prev++)
+                {
+                    // Re-fill earlier targets lazily only when an AoE actually knocks someone down
+                    var pe = livingEnemies[prev];
+                    var pAff = _bridge.QueryEffectiveAffinity(actor, pe, skill.Element, config.RespectAnalysisState);
+                    double pDmg = (!pAff.IsNull && !pAff.BlockedByShield)
+                        ? EvaluateTargetExpectedDamage(skill, actor, pe, pAff, config.RespectAnalysisState)
+                        : 0.0;
+                    simHp[prev] = skill.IsInstantKill ? pe.CurrentHp : Math.Max(0.0, pe.CurrentHp - pDmg);
+                    simDown[prev] = !pe.IsStanding || (canKnockDown && _bridge.IsKnownWeakness(pe, skill.Element, pAff) && pe.IsStanding);
+                }
+            }
+
+            if (simHp != null)
+            {
+                simHp[i] = remHp;
+                simDown![i] = postDown;
+            }
         }
 
         if (enemiesDamaged == 0 || totalRawDmg <= 0.0)
@@ -485,21 +518,19 @@ internal sealed class OffenseEvaluator
             ? Math.Min(300.0, maxProbe + 0.50 * (sumProbe - maxProbe))
             : 0.0;
 
-        bool finishesBattle = killCount == livingEnemies.Count;
-        bool anySurvivor = simHpByEnemy.Values.Any(hp => hp > 0.0);
+        bool finishesBattle = killCount == count;
         bool grantsOneMore = knocksDownAny && anySurvivor;
-        bool triggersAoa = grantsOneMore && activeAlliesForAoa >= 2 &&
-                           livingEnemies.All(e => simHpByEnemy[e] <= 0.0 || simDownByEnemy[e]);
+        bool triggersAoa = grantsOneMore && activeAlliesForAoa >= 2 && allDownOrDead;
 
         if (item != null && !allowNeutralChipItem && killCount == 0 && !grantsOneMore && !triggersAoa)
             return null;
 
         double followupDmg = 0.0;
         string followupNote = string.Empty;
-        if (grantsOneMore)
+        if (grantsOneMore && simHp != null && simDown != null)
         {
             (followupDmg, followupNote) = SimulateBestOneMoreFollowupAoE(
-                battle, config, skill, simHpByEnemy, simDownByEnemy, spCost, hpCost, allCandidates, followupItems, item, profile.IgnoreOverkillCap);
+                battle, config, skill, livingEnemies, simHp, simDown, spCost, hpCost, allCandidates, followupItems, item, profile);
         }
 
         double accWeight = GetAccuracyWeight(skill);
@@ -623,48 +654,51 @@ internal sealed class OffenseEvaluator
         double singleTargetStep1Dmg,
         int step1SpCost,
         int step1HpCost,
+        List<CombatantSnapshot> livingEnemies,
         List<SkillMetadata> candidates,
         IReadOnlyList<BattleConsumableInfo>? followupItems,
         BattleConsumableInfo? step1Item,
-        bool ignoreOverkillCap)
+        OffenseScoringProfile profile)
     {
-        var simHp = new Dictionary<CombatantSnapshot, double>(battle.Enemies.Count);
-        var simDown = new Dictionary<CombatantSnapshot, bool>(battle.Enemies.Count);
+        int count = livingEnemies.Count;
+        var simHp = new double[count];
+        var simDown = new bool[count];
 
-        foreach (var e in battle.Enemies)
+        for (int i = 0; i < count; i++)
         {
-            if (e.IsDead)
-                continue;
-
+            var e = livingEnemies[i];
             if (ReferenceEquals(e, targetEnemy))
             {
-                simHp[e] = Math.Max(0.0, e.CurrentHp - singleTargetStep1Dmg);
-                simDown[e] = true;
+                simHp[i] = Math.Max(0.0, e.CurrentHp - singleTargetStep1Dmg);
+                simDown[i] = true;
             }
             else
             {
-                simHp[e] = e.CurrentHp;
-                simDown[e] = !e.IsStanding;
+                simHp[i] = e.CurrentHp;
+                simDown[i] = !e.IsStanding;
             }
         }
 
-        return SimulateBestOneMoreFollowupAoE(battle, config, step1Skill, simHp, simDown, step1SpCost, step1HpCost, candidates, followupItems, step1Item, ignoreOverkillCap);
+        return SimulateBestOneMoreFollowupAoE(
+            battle, config, step1Skill, livingEnemies, simHp, simDown, step1SpCost, step1HpCost, candidates, followupItems, step1Item, profile);
     }
 
     private (double followupDmg, string note) SimulateBestOneMoreFollowupAoE(
         BattleSnapshot battle,
         Config config,
         SkillMetadata step1Skill,
-        Dictionary<CombatantSnapshot, double> simHpByEnemy,
-        Dictionary<CombatantSnapshot, bool> simDownByEnemy,
+        List<CombatantSnapshot> livingEnemies,
+        double[] simHpByIdx,
+        bool[] simDownByIdx,
         int step1SpCost,
         int step1HpCost,
         List<SkillMetadata> candidates,
         IReadOnlyList<BattleConsumableInfo>? followupItems,
         BattleConsumableInfo? step1Item,
-        bool ignoreOverkillCap)
+        OffenseScoringProfile profile)
     {
         var actor = battle.Actor;
+        bool ignoreOverkillCap = profile.IgnoreOverkillCap;
         int simSp = actor.CurrentSp - step1SpCost;
         int simHp = actor.CurrentHp - step1HpCost;
 
@@ -674,8 +708,13 @@ internal sealed class OffenseEvaluator
         bool simPowerCharged = actor.HasPowerCharge && !step1ConsumedPower;
         bool simMindCharged = actor.HasMindCharge && !step1ConsumedMind;
 
-        var surviving = simHpByEnemy.Where(kv => kv.Value > 0.0).Select(kv => kv.Key).ToList();
-        if (surviving.Count == 0)
+        int survivingCount = 0;
+        for (int i = 0; i < simHpByIdx.Length; i++)
+        {
+            if (simHpByIdx[i] > 0.0)
+                survivingCount++;
+        }
+        if (survivingCount == 0)
             return (0.0, "All Dead");
 
         double bestDmg = 0.0;
@@ -694,11 +733,16 @@ internal sealed class OffenseEvaluator
             bool assumeCharged = (usesPower2 && simPowerCharged) || (usesMind2 && simMindCharged);
             bool assumeUncharged = !assumeCharged && !skill2.IsFixedPowerDamage &&
                                    ((usesPower2 && actor.HasPowerCharge) || (usesMind2 && actor.HasMindCharge));
-            EvaluateFollowupOption(skill2, elem2, assumeCharged, assumeUncharged, itemPenalty: 0.0, label: SkillCatalog.GetSkillName(skill2.SkillId), requireRevealed: false);
+            EvaluateFollowupOption(
+                skill2, elem2, assumeCharged, assumeUncharged,
+                itemPenalty: 0.0, label: SkillCatalog.GetSkillName(skill2.SkillId),
+                requireRevealed: false, allowNeutralItem: true);
         }
 
         if (followupItems != null)
         {
+            // Match actual 1-More turn item gating so lookahead never plans neutral chip items ActFreely/HealSupport reject
+            bool allowNeutralItemFollowup = profile.AllowDamageItemOutrank || actor.HasSilenced || bestDmg <= 0.01;
             int reserve = Math.Clamp(config.MinConsumableReserveCount, 0, 99);
             foreach (var item2 in followupItems)
             {
@@ -713,7 +757,8 @@ internal sealed class OffenseEvaluator
                     assumeUncharged: !item2.Skill.IsFixedPowerDamage && actor.HasMindCharge,
                     itemPenalty: pen,
                     label: item2.Name,
-                    requireRevealed: !config.AllowDamageItemProbing);
+                    requireRevealed: !config.AllowDamageItemProbing,
+                    allowNeutralItem: allowNeutralItemFollowup);
             }
         }
 
@@ -726,17 +771,27 @@ internal sealed class OffenseEvaluator
             bool assumeUncharged,
             double itemPenalty,
             string label,
-            bool requireRevealed)
+            bool requireRevealed,
+            bool allowNeutralItem)
         {
             double acc2 = GetAccuracyWeight(skill2);
+            bool canKnockDown2 = !skill2.IsInstantKill && (skill2.AilmentMask & 0x80000) == 0;
+            bool isItem = itemPenalty > 0.0;
 
             if (skill2.IsAoE)
             {
                 double sum = 0.0;
                 bool anyRevealed = !requireRevealed;
                 int enemiesDamaged2 = 0;
-                foreach (var enemy in surviving)
+                int kills2 = 0;
+                bool knocksDownAny2 = false;
+                for (int i = 0; i < livingEnemies.Count; i++)
                 {
+                    double remHp = simHpByIdx[i];
+                    if (remHp <= 0.0)
+                        continue;
+
+                    var enemy = livingEnemies[i];
                     var aff = _bridge.QueryEffectiveAffinity(actor, enemy, skill2.Element, config.RespectAnalysisState);
                     if (AiCombatHelpers.IsUnsafeReflectOrDrain(enemy, skill2.Element, aff))
                         return;
@@ -745,15 +800,30 @@ internal sealed class OffenseEvaluator
                     if (aff.IsRevealed || (byte)skill2.Element > 7 || skill2.Element == ElementId.Almighty)
                         anyRevealed = true;
 
-                    double raw = ComputeExpectedSkillDamageWithChargeState(
-                        skill2, actor, enemy, aff, assumeCharged, assumeUncharged, config.RespectAnalysisState);
+                    double raw = skill2.IsInstantKill
+                        ? EstimateInstantKillExpectedValue(skill2, enemy, aff)
+                        : ComputeExpectedSkillDamageWithChargeState(
+                            skill2, actor, enemy, aff, assumeCharged, assumeUncharged, config.RespectAnalysisState);
                     if (raw > 0.0)
                         enemiesDamaged2++;
-                    double eff = ignoreOverkillCap ? raw : Math.Min(raw, simHpByEnemy[enemy]);
+                    double eff = ignoreOverkillCap ? raw : Math.Min(raw, remHp);
                     sum += eff * acc2 + (ignoreOverkillCap ? 0.0 : 0.02 * raw);
+
+                    if (!skill2.IsInstantKill && !skill2.IsPercentHpDamage && raw >= remHp)
+                        kills2++;
+                    if (canKnockDown2 && !simDownByIdx[i] && _bridge.IsKnownWeakness(enemy, skill2.Element, aff))
+                        knocksDownAny2 = true;
                 }
 
-                if (itemPenalty == 0.0 && enemiesDamaged2 <= 1 && !skill2.IsInstantKill && sum > 0.0)
+                if (isItem && !allowNeutralItem && kills2 == 0 && !knocksDownAny2)
+                    return;
+
+                if (!ignoreOverkillCap && kills2 > 0)
+                    sum += kills2 * 50.0;
+                if (knocksDownAny2)
+                    sum += 120.0;
+
+                if (!isItem && enemiesDamaged2 <= 1 && !skill2.IsInstantKill && sum > 0.0)
                     sum -= 0.5;
 
                 sum -= itemPenalty;
@@ -765,8 +835,13 @@ internal sealed class OffenseEvaluator
                 return;
             }
 
-            foreach (var enemy in surviving)
+            for (int i = 0; i < livingEnemies.Count; i++)
             {
+                double remHp = simHpByIdx[i];
+                if (remHp <= 0.0)
+                    continue;
+
+                var enemy = livingEnemies[i];
                 var aff = _bridge.QueryEffectiveAffinity(actor, enemy, elem2, config.RespectAnalysisState);
                 if (aff.IsBadHit)
                     continue;
@@ -780,16 +855,17 @@ internal sealed class OffenseEvaluator
                 if (raw <= 0.0)
                     continue;
 
-                double eff2 = ignoreOverkillCap ? raw : Math.Min(raw, simHpByEnemy[enemy]);
-                double score2 = eff2 * acc2 + (ignoreOverkillCap ? 0.0 : 0.02 * raw) - itemPenalty;
-                if (!ignoreOverkillCap && !skill2.IsInstantKill && !skill2.IsPercentHpDamage && raw >= simHpByEnemy[enemy])
-                    score2 += 50.0;
+                bool kills2 = !skill2.IsInstantKill && !skill2.IsPercentHpDamage && raw >= remHp;
+                bool knocksDown2 = canKnockDown2 && !simDownByIdx[i] && _bridge.IsKnownWeakness(enemy, elem2, aff);
+                if (isItem && !allowNeutralItem && !kills2 && !knocksDown2)
+                    continue;
 
-                if (!skill2.IsInstantKill && (skill2.AilmentMask & 0x80000) == 0 &&
-                    !simDownByEnemy[enemy] && _bridge.IsKnownWeakness(enemy, elem2, aff))
-                {
+                double eff2 = ignoreOverkillCap ? raw : Math.Min(raw, remHp);
+                double score2 = eff2 * acc2 + (ignoreOverkillCap ? 0.0 : 0.02 * raw) - itemPenalty;
+                if (!ignoreOverkillCap && kills2)
+                    score2 += 50.0;
+                if (knocksDown2)
                     score2 += 120.0;
-                }
 
                 if (score2 > bestDmg)
                 {
@@ -849,7 +925,7 @@ internal sealed class OffenseEvaluator
 
             foreach (var atk in candidates)
             {
-                if (atk.SkillId == 0 || atk.IsInstantKill)
+                if (atk.SkillId == 0 || atk.IsInstantKill || atk.IsFixedPowerDamage || atk.IsPercentHpDamage)
                     continue;
 
                 bool matchesPhys = isPowerCharge && atk.Element == ElementId.Phys;
@@ -860,6 +936,8 @@ internal sealed class OffenseEvaluator
                 int atkSp = atk.CostType == 2 ? _bridge.GetEffectiveCost(actor, atk.SkillId) : 0;
                 if (chargeSp + atkSp > actor.CurrentSp)
                     continue;
+
+                double atkAcc = GetAccuracyWeight(atk);
 
                 if (atk.IsAoE)
                 {
@@ -876,10 +954,11 @@ internal sealed class OffenseEvaluator
                         if (aff.CanDealDamage)
                             groupUncharged += ComputeExpectedSkillDamageWithChargeState(atk, actor, enemy, aff, false, true, config.RespectAnalysisState);
                     }
-                    if (!bad && groupUncharged * 2.5 > bestChargedDmg)
+                    double weightedUncharged = groupUncharged * atkAcc;
+                    if (!bad && weightedUncharged * 2.5 > bestChargedDmg)
                     {
-                        bestUnchargedDmg = groupUncharged;
-                        bestChargedDmg = groupUncharged * 2.5;
+                        bestUnchargedDmg = weightedUncharged;
+                        bestChargedDmg = weightedUncharged * 2.5;
                         bestFollowupName = SkillCatalog.GetSkillName(atk.SkillId);
                     }
                     continue;
@@ -892,7 +971,7 @@ internal sealed class OffenseEvaluator
                         continue;
 
                     double uncharged = ComputeExpectedSkillDamageWithChargeState(
-                        atk, actor, enemy, aff, false, true, config.RespectAnalysisState);
+                        atk, actor, enemy, aff, false, true, config.RespectAnalysisState) * atkAcc;
                     double charged = uncharged * 2.5;
                     if (charged > bestChargedDmg)
                     {

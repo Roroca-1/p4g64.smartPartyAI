@@ -767,7 +767,7 @@ internal sealed class SupportAndRecoveryEvaluator
             double curedDmg = curedProj.NextAnyEnemyDmg;
             double impairedDmg = (target.HasLossOfControl || target.IsDizzy || target.IsDown)
                 ? 0.0
-                : (target.HasPoison && !target.HasSilenced ? curedDmg * 0.70 : (currentProj?.NextAnyEnemyDmg ?? 0.0));
+                : (currentProj?.NextAnyEnemyDmg ?? 0.0);
 
             double recoveredDmg = Math.Max(0.0, curedDmg - impairedDmg);
             bool blockedFromSkillsOrTurn = target.HasSilenced || target.HasLossOfControl || target.IsDizzy || target.IsDown;
@@ -820,7 +820,22 @@ internal sealed class SupportAndRecoveryEvaluator
                 }
             }
 
-            // Exhaust (0x40): 10% MaxSP drain/turn + 1.25x incoming damage risk in multi-round fights
+            // Poison (0x20): 10% MaxHP bleed/turn in multi-round fights (clamped to 1 HP; escalates as HP drops)
+            if (target.HasPoison && !allEnemiesDown && (!teamCtx.HasDamageModel || teamCtx.EstimatedRoundsRemaining >= 2.0))
+            {
+                bool bossFight = livingEnemies.Any(AiCombatHelpers.IsLikelyBossOrMiniboss);
+                double roundsWeight = teamCtx.HasDamageModel
+                    ? Math.Clamp(teamCtx.EstimatedRoundsRemaining - 1.25, 0.5, 2.5)
+                    : 1.25;
+                double bleedPerTurn = Math.Clamp(target.MaxHp * 0.10, 1.0, 60.0);
+                double hpPressure = target.HpRatio < 0.55 ? 1.50 : (target.HpRatio < 0.75 ? 1.0 : 0.65);
+                double poisonBleedValue = bleedPerTurn * roundsWeight * hpPressure + (bossFight && target.HpRatio < 0.65 ? 30.0 : 0.0);
+                if (target.UnitOrEnemyId == 1)
+                    poisonBleedValue += 20.0;
+                recoveredValue += poisonBleedValue;
+            }
+
+            // Exhaust (0x40): 10% MaxSP drain/turn + 1.20x incoming damage risk in multi-round fights
             if (target.HasExhaust && !allEnemiesDown && (!teamCtx.HasDamageModel || teamCtx.EstimatedRoundsRemaining >= 1.8))
             {
                 bool bossFight = livingEnemies.Any(AiCombatHelpers.IsLikelyBossOrMiniboss);
