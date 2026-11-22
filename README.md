@@ -43,7 +43,7 @@ Click the **Reloaded-II 1-Click Install** button on [GameBanana](https://gameban
 
 ## Credits & AI Assistance Disclosure
 
-- **Project Lead, Design & Live Testing**: Alex Liu (`Kanasara` / `Roroca-1`) — tactical design direction, preset architecture decisions, live in-game P4G battle testing, log analysis, and verification.
+- **Project Lead, Design & Live Testing**:  `Roroca-1` — tactical design direction, preset architecture decisions, live in-game P4G battle testing, log analysis, and verification.
 - **AI Coding Assistants**: C# implementation, refactoring, and automated unit tests were heavily assisted by [Google Gemini](https://gemini.google.com/) (via Google Antigravity) and [OpenAI Codex](https://openai.com/codex/).
 
 ## Build & Tests
