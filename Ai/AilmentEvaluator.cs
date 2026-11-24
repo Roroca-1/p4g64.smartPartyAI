@@ -208,7 +208,7 @@ internal sealed class AilmentEvaluator
         if (target.HasAilmentFromSkill(skill))
             return 0.0;
 
-        var aff = _bridge.QueryAilmentAffinity(actor, target, config.RespectAnalysisState);
+        var aff = _bridge.QueryAilmentAffinity(actor, target, skill, config.RespectAnalysisState);
         if (aff.IsBadHit || aff.MultiplierPercent <= 0)
             return 0.0;
 

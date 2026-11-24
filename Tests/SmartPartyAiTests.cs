@@ -125,6 +125,8 @@ internal sealed class MockBattleBridge : IBattleEngineBridge
     public bool IsKnownWeakness(CombatantSnapshot target, ElementId element, AffinityInfo aff) =>
         aff.IsWeak && !aff.BlockedByShield && !target.IsGuarding && !target.HasWallForElement(element);
 
+    public Dictionary<(CombatantSnapshot, short), AffinityInfo> AilmentSlotAffinities { get; } = new();
+
     public AffinityInfo QueryAilmentAffinity(CombatantSnapshot actor, CombatantSnapshot target, bool respectAnalysis)
     {
         if (!AilmentAffinities.TryGetValue(target, out var raw))
@@ -134,6 +136,14 @@ internal sealed class MockBattleBridge : IBattleEngineBridge
             return new AffinityInfo { IsRevealed = false, MultiplierPercent = 100 };
 
         return raw;
+    }
+
+    public AffinityInfo QueryAilmentAffinity(CombatantSnapshot actor, CombatantSnapshot target, SkillMetadata skill, bool respectAnalysis)
+    {
+        short slot = IBattleEngineBridge.ResolveAilmentAffinitySlot(skill);
+        if (AilmentSlotAffinities.TryGetValue((target, slot), out var slotAff))
+            return slotAff;
+        return QueryAilmentAffinity(actor, target, respectAnalysis);
     }
 
     public Dictionary<int, ElementId> AttackElements { get; } = new();
@@ -4118,5 +4128,151 @@ public sealed class SmartPartyAiTests
             Enemies = new() { boss }
         }, cfg)!;
         Assert.Equal((ushort)138, dOneMore.SkillId);
+    }
+
+    [Fact]
+    public void TreasureHand_BlocksTentarafooViaPerAilmentSlot_AndMudoNeverSpamsUnrevealedOrResisted()
+    {
+        var bridge = CreateStandardSkillDatabase();
+        // Match real SKILL.TBL entries: Tentarafoo (84, elem=8 Confuse, AilmentMask=0x10) and Mudo (72, BaseAilmentChance=25)
+        bridge.Skills[84] = new SkillMetadata { SkillId = 84, Name = "Tentarafoo", Element = (ElementId)8, StatType = 2, CostType = 2, BaseCost = 12, Scope = 1, TargetSide = 2, EffectType = 0, Power = 0, Accuracy = 100, BaseAilmentChance = 40, AilmentMask = 0x10 };
+        bridge.Skills[72] = new SkillMetadata { SkillId = 72, Name = "Mudo", Element = ElementId.Dark, StatType = 2, CostType = 2, BaseCost = 8, Scope = 0, TargetSide = 2, EffectType = 0, Power = 0, Accuracy = 100, BaseAilmentChance = 25, AilmentMask = 0x80000 };
+
+        var engine = new SmartPartyAiEngine(bridge);
+        var cfg = DefaultConfig();
+
+        // 1. Two Treasure Hands (#299, 400 HP): Confuse slot 8 is immune (0x2000), Dizzy slot 12 is 25%, Wind is Null.
+        var hand1 = MakeEnemy(299, 1, 400, 400);
+        var hand2 = MakeEnemy(299, 2, 400, 400);
+        foreach (var h in new[] { hand1, hand2 })
+        {
+            bridge.Affinities[(h, ElementId.Wind)] = new AffinityInfo { IsNull = true, IsRevealed = true, MultiplierPercent = 0 };
+            bridge.Affinities[(h, ElementId.Fire)] = new AffinityInfo { IsNull = true, IsRevealed = true, MultiplierPercent = 0 };
+            bridge.AilmentSlotAffinities[(h, 8)] = new AffinityInfo { IsNull = true, IsRevealed = true, MultiplierPercent = 0 };
+            bridge.AilmentSlotAffinities[(h, 12)] = new AffinityInfo { IsRevealed = true, MultiplierPercent = 25 };
+            bridge.SingleHitDamages[(0, h)] = 45.0;
+        }
+
+        var yosuke = MakeParty(2, TacticMode.ActFreely, 319, 319, 135, 194, new ushort[] { 84, 15 });
+        var dYosuke = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = yosuke,
+            Allies = new() { yosuke },
+            Enemies = new() { hand1, hand2 }
+        }, cfg)!;
+        Assert.Equal(AiActionKind.NormalAttack, dYosuke.ActionKind);
+
+        // 2. Yukiko vs Treasure Hand (#299, 340 HP): Fire Null, Dark unrevealed (Mudo 25% base) -> Basic Attack beats unrevealed Mudo
+        var handUnrev = MakeEnemy(299, 3, 340, 400);
+        bridge.Affinities[(handUnrev, ElementId.Fire)] = new AffinityInfo { IsNull = true, IsRevealed = true, MultiplierPercent = 0 };
+        bridge.Affinities[(handUnrev, ElementId.Dark)] = new AffinityInfo { IsRevealed = false, MultiplierPercent = 100 };
+        bridge.SingleHitDamages[(0, handUnrev)] = 34.0;
+
+        var yukiko = MakeParty(4, TacticMode.ActFreely, 245, 245, 215, 260, new ushort[] { 72, 2 });
+        var dYukikoUnrev = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = yukiko,
+            Allies = new() { yukiko },
+            Enemies = new() { handUnrev }
+        }, cfg)!;
+        Assert.Equal(AiActionKind.NormalAttack, dYukikoUnrev.ActionKind);
+
+        // 3. Same Treasure Hand once Dark Resist (0x1000) is revealed -> Mudo EV is 0, never cast
+        bridge.Affinities[(handUnrev, ElementId.Dark)] = new AffinityInfo { IsResist = true, IsRevealed = true, MultiplierPercent = 50 };
+        var dYukikoRes = engine.DecideAction(new BattleSnapshot
+        {
+            Actor = yukiko,
+            Allies = new() { yukiko },
+            Enemies = new() { handUnrev }
+        }, cfg)!;
+        Assert.Equal(AiActionKind.NormalAttack, dYukikoRes.ActionKind);
+    }
+
+    [Fact]
+    public void ShadowTeddie_NullityGuidanceAndUltraChargeWindup_DoNotGuardEarly_GuardsOnlyOnFinalNihilHandTelegraph()
+    {
+        var bridge = CreateStandardSkillDatabase();
+        var engine = new SmartPartyAiEngine(bridge);
+        var cfg = DefaultConfig();
+
+        var yosuke = MakeParty(2, TacticMode.ActFreely, 247, 357, 219, 219, new ushort[] { 15 });
+        var yukiko = MakeParty(4, TacticMode.ActFreely, 267, 273, 255, 287, new ushort[] { 2 });
+        bridge.Affinities[(yukiko, ElementId.Ice)] = new AffinityInfo { IsWeak = true, IsRevealed = true, MultiplierPercent = 125 };
+
+        // Step 1: Nullity Guidance (364) sets Mind Charge, next turn is Ultra Charge (no attack) -> party attacks freely!
+        var teddieStep1 = MakeEnemy(261, 1, 3000, 4000, mindCharge: true, lastActionType: 2, lastSkillId: 364);
+        bridge.SingleHitDamages[(0, teddieStep1)] = 80.0;
+        bridge.SingleHitDamages[(2, teddieStep1)] = 99.0;
+        Assert.NotEqual(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot { Actor = yosuke, Allies = new() { yosuke, yukiko }, Enemies = new() { teddieStep1 } }, cfg)!.ActionKind);
+        Assert.NotEqual(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot { Actor = yukiko, Allies = new() { yosuke, yukiko }, Enemies = new() { teddieStep1 } }, cfg)!.ActionKind);
+
+        // Step 2: Ultra Charge (363) sets bit 448 (bit 458 still off), next turn is Wait 169 (no attack) -> party attacks freely!
+        var teddieStep2 = MakeEnemy(261, 1, 2800, 4000, mindCharge: true, lastActionType: 7, lastSkillId: 363);
+        bridge.SingleHitDamages[(0, teddieStep2)] = 80.0;
+        bridge.SingleHitDamages[(2, teddieStep2)] = 99.0;
+        var bitsStep2 = new HashSet<int> { 448 };
+        Assert.NotEqual(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot { Actor = yosuke, Allies = new() { yosuke, yukiko }, Enemies = new() { teddieStep2 }, ActiveBattleBits = bitsStep2 }, cfg)!.ActionKind);
+        Assert.NotEqual(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot { Actor = yukiko, Allies = new() { yosuke, yukiko }, Enemies = new() { teddieStep2 }, ActiveBattleBits = bitsStep2 }, cfg)!.ActionKind);
+
+        // Step 3: Final telegraph (Wait 169 / bit 458) -> Nihil Hand lands next turn -> both Guard!
+        var teddieStep3 = MakeEnemy(261, 1, 2600, 4000, mindCharge: true, lastActionType: 7, waitMessageId: 169);
+        var bitsStep3 = new HashSet<int> { 448, 458 };
+        Assert.Equal(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot { Actor = yosuke, Allies = new() { yosuke, yukiko }, Enemies = new() { teddieStep3 }, ActiveBattleBits = bitsStep3 }, cfg)!.ActionKind);
+        Assert.Equal(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot { Actor = yukiko, Allies = new() { yosuke, yukiko }, Enemies = new() { teddieStep3 }, ActiveBattleBits = bitsStep3 }, cfg)!.ActionKind);
+
+        // Normal Mind Charge (228, no bit 448/458) -> Yukiko still Guards her Ice weakness!
+        var teddieNormalMc = MakeEnemy(261, 1, 2600, 4000, mindCharge: true, lastActionType: 2, lastSkillId: 228);
+        bridge.SingleHitDamages[(2, teddieNormalMc)] = 99.0;
+        Assert.Equal(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot { Actor = yukiko, Allies = new() { yosuke, yukiko }, Enemies = new() { teddieNormalMc } }, cfg)!.ActionKind);
+    }
+
+    [Fact]
+    public void AmenoSagiri_FogWindupDoesNotGuardEarly_GuardsOnBit455_AndShadowNaotoClearsAfterCompletionBits()
+    {
+        var bridge = CreateStandardSkillDatabase();
+        var engine = new SmartPartyAiEngine(bridge);
+        var cfg = DefaultConfig();
+
+        var yosuke = MakeParty(2, TacticMode.ActFreely, 240, 357, 200, 219, new ushort[] { 15 });
+        var chie = MakeParty(3, TacticMode.ActFreely, 320, 350, 120, 150, new ushort[] { 25 });
+        bridge.Affinities[(chie, ElementId.Fire)] = new AffinityInfo { IsWeak = true, IsRevealed = true, MultiplierPercent = 125 };
+
+        // 1. Ameno-sagiri (#266) inside Bewildering Fog (bit 451 + 452 Mind Charge, !455) -> no premature Guard!
+        var amenoFog = MakeEnemy(266, 1, 4000, 6000, mindCharge: true);
+        bridge.SingleHitDamages[(0, amenoFog)] = 80.0;
+        Assert.NotEqual(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot
+        {
+            Actor = yosuke,
+            Allies = new() { yosuke },
+            Enemies = new() { amenoFog },
+            ActiveBattleBits = new HashSet<int> { 451, 452 }
+        }, cfg)!.ActionKind);
+
+        // 2. Ameno-sagiri (#266) fog cleared (bit 455) -> Nebula Oculus next turn -> mandatory Guard!
+        Assert.Equal(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot
+        {
+            Actor = yosuke,
+            Allies = new() { yosuke },
+            Enemies = new() { amenoFog },
+            ActiveBattleBits = new HashSet<int> { 451, 452, 453, 454, 455 }
+        }, cfg)!.ActionKind);
+
+        // 3. Shadow Naoto (#263): bit 452 (Fire) without 456 -> Chie guards Fire weakness; once bit 456 is set -> Chie attacks!
+        var naoto = MakeEnemy(263, 1, 3000, 4500);
+        bridge.SingleHitDamages[(0, naoto)] = 90.0;
+        Assert.Equal(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot
+        {
+            Actor = chie,
+            Allies = new() { chie },
+            Enemies = new() { naoto },
+            ActiveBattleBits = new HashSet<int> { 452 }
+        }, cfg)!.ActionKind);
+        Assert.NotEqual(AiActionKind.Guard, engine.DecideAction(new BattleSnapshot
+        {
+            Actor = chie,
+            Allies = new() { chie },
+            Enemies = new() { naoto },
+            ActiveBattleBits = new HashSet<int> { 452, 456 }
+        }, cfg)!.ActionKind);
     }
 }

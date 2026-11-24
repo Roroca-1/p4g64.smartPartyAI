@@ -31,7 +31,7 @@ public sealed unsafe class NativeBattleBridge : IBattleEngineBridge
     // Per-turn read-only caches cleared on CaptureBattleSnapshot and at end of OnBtlAiStateUpdate.
     private readonly Dictionary<(nint targetComb, ElementId elem), uint> _turnTrueAffinityCache = new(64);
     private readonly Dictionary<(nint targetComb, ElementId elem, bool respectAnalysis), AffinityInfo> _turnAffinityCache = new(64);
-    private readonly Dictionary<(nint targetComb, bool respectAnalysis), AffinityInfo> _turnAilmentAffinityCache = new(16);
+    private readonly Dictionary<(nint targetComb, short ailmentSlot), AffinityInfo> _turnAilmentAffinityCache = new(16);
     private readonly Dictionary<(ushort skillId, nint attackerComb, nint targetComb), int> _turnRawDamageCache = new(128);
     private readonly Dictionary<(nint comb, ushort skillId), int> _turnEffectiveCostCache = new(32);
     private readonly Dictionary<(nint unit, ushort skillId), bool> _turnCanUseSkillCache = new(32);
@@ -445,30 +445,36 @@ public sealed unsafe class NativeBattleBridge : IBattleEngineBridge
         return result;
     }
 
-    public AffinityInfo QueryAilmentAffinity(CombatantSnapshot actor, CombatantSnapshot target, bool respectAnalysis)
+    public AffinityInfo QueryAilmentAffinity(CombatantSnapshot actor, CombatantSnapshot target, bool respectAnalysis) =>
+        QueryAilmentAffinityForSlot(target, 12);
+
+    public AffinityInfo QueryAilmentAffinity(CombatantSnapshot actor, CombatantSnapshot target, SkillMetadata skill, bool respectAnalysis) =>
+        QueryAilmentAffinityForSlot(target, IBattleEngineBridge.ResolveAilmentAffinitySlot(skill));
+
+    private AffinityInfo QueryAilmentAffinityForSlot(CombatantSnapshot target, short ailmentSlot)
     {
         if (target.IsEnemy && (target.MaxHp >= 500 || SkillCatalog.IsKnownBossUnitId(target.UnitOrEnemyId)))
             return new AffinityInfo { IsNull = true, IsRevealed = true, MultiplierPercent = 0 };
 
-        var cacheKey = (target.CombatantPtr, respectAnalysis);
+        var cacheKey = (target.CombatantPtr, ailmentSlot);
         if (_turnAilmentAffinityCache.TryGetValue(cacheKey, out var cachedAff))
             return cachedAff;
 
-        uint raw = _native.GetEffectiveAffinity(target.CombatantPtr, 12);
+        // Verified in P4G.exe (IsAffinityRevealed @ 0x0A8AD0 uses bit = element + enemyId * 8):
+        // P4G only tracks analysis reveal bits for elements 0..7; calling IsAffinityRevealed with slot >= 8
+        // reads out-of-bounds into enemyId + 1. Query GetEffectiveAffinity directly for ailment slots 8..15.
+        uint raw = _native.GetEffectiveAffinity(target.CombatantPtr, ailmentSlot);
         bool immune = (raw & 0x27000000) != 0;
         int mult = (int)(raw & 0xFF);
-        bool revealed = !target.IsEnemy || _native.IsAffinityRevealed(target.UnitOrEnemyId, 12) != 0;
 
-        AffinityInfo result = (respectAnalysis && !revealed && target.IsEnemy)
-            ? new AffinityInfo { IsRevealed = false, MultiplierPercent = 100 }
-            : new AffinityInfo
-            {
-                IsNull = immune,
-                IsResist = (raw & 0x10000000) != 0,
-                IsWeak = (raw & 0x08000000) != 0,
-                IsRevealed = revealed,
-                MultiplierPercent = immune ? 0 : (mult > 0 ? mult : 100)
-            };
+        AffinityInfo result = new AffinityInfo
+        {
+            IsNull = immune,
+            IsResist = (raw & 0x10000000) != 0,
+            IsWeak = (raw & 0x08000000) != 0,
+            IsRevealed = true,
+            MultiplierPercent = immune ? 0 : (mult > 0 ? mult : 100)
+        };
 
         _turnAilmentAffinityCache[cacheKey] = result;
         return result;

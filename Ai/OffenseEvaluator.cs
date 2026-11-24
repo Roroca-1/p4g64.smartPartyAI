@@ -1092,8 +1092,19 @@ internal sealed class OffenseEvaluator
         if (AiCombatHelpers.IsLikelyBossOrMiniboss(enemy))
             return 0.0;
 
-        // Instant death scales by hit probability and does not grant 1 More
-        double killChance = aff.IsWeak ? 0.60 : (aff.IsResist ? 0.15 : 0.30);
+        // Never cast Hama/Mudo into known Resist/Null/Repel/Drain targets (e.g. Golden Hands with 0x1000 Dark/Light Resist).
+        if (aff.IsBadHit || aff.IsResist || aff.MultiplierPercent <= 0)
+            return 0.0;
+
+        // Verified in SKILL.TBL (offset 0x1D): Mudo=25%, Mamudo=30%, Hamaon/Mahama=50%, Hama/Mudoon/Mamudoon=60%, Mahamaon=70%.
+        // Accuracy (0x12) is always 100 for Hama/Mudo; use BaseAilmentChance when present and keep unrevealed casts conservative
+        // so low-odds Mudo doesn't beat reliable attacks on high-HP / high-resist enemies when Dark hasn't been analyzed.
+        double baseRate = skill.BaseAilmentChance > 0
+            ? Math.Clamp(skill.BaseAilmentChance / 100.0, 0.15, 0.85)
+            : 0.40;
+        double killChance = aff.IsWeak
+            ? Math.Min(0.85, baseRate * 1.50)
+            : (aff.IsRevealed ? baseRate * 0.55 : baseRate * 0.35);
         double accFactor = skill.Accuracy > 0 ? Math.Clamp(skill.Accuracy / 100.0, 0.3, 1.0) : 1.0;
         return enemy.CurrentHp * killChance * accFactor;
     }

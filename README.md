@@ -38,7 +38,7 @@ Click the **Reloaded-II 1-Click Install** button on [GameBanana](https://gameban
 
 ### Option B: Manual Install (GitHub / Archive)
 1. Install [**Reloaded.SharedLib.Hooks**](https://github.com/Sewer56/Reloaded.SharedLib.Hooks.ReloadedII) if not already installed (or let Reloaded-II auto-download dependencies).
-2. Download `p4g64.smartPartyAI1.1.1.zip` (or `.7z`) from [GitHub Releases](https://github.com/Roroca-1/p4g64.smartPartyAI/releases) and drag it into the Reloaded-II launcher (or extract into `<Reloaded-II>/Mods/p4g64.smartPartyAI/`).
+2. Download `p4g64.smartPartyAI1.1.2.zip` (or `.7z`) from [GitHub Releases](https://github.com/Roroca-1/p4g64.smartPartyAI/releases) and drag it into the Reloaded-II launcher (or extract into `<Reloaded-II>/Mods/p4g64.smartPartyAI/`).
 3. Enable **Smart Party AI Overhaul** for **Persona 4 Golden** (`p4g.exe`) and launch through Reloaded-II.
 
 ## AI Assistance Disclosure

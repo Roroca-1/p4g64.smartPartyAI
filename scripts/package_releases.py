@@ -315,11 +315,13 @@ def main() -> None:
 A native C# Reloaded-II overhaul for **Persona 4 Golden (PC 64-bit)** that replaces the vanilla party member AI tactics engine with deterministic `SKILL.TBL` combat math, 2-step `1 More` lookahead, team Value-of-Setup buffs/debuffs, turn-order reviving & anti-wipe triage, smart element probing, ailment curing, and boss telegraph guarding.
 
 ## What's New in v{VERSION}
-- **Fixed Real `1 More` Detection (`BattleUnit + 0x30`)**: Replaced the misidentified Player-Advantage Turn-1 check (`0x1400620B0`) with the verified per-unit `1 More` flag (`BattleUnit + 0x30`) and ensured the active unit at turn-queue index `0` is always skipped. Turn-1 Player Advantage ambushes now allow Charge/buffs, and real `1 More` turns are detected accurately.
-- **Fixed `1 More` Damage-Item Follow-up Lookahead**: `Act Freely`, `Heal/Support`, and `Conserve SP` no longer hallucinate neutral chip damage items in `1 More` lookahead that won't be used on the actual `1 More` turn; AoE `1 More` follow-ups now score lethal kills and chain knockdowns consistently with single-target follow-ups.
-- **Fixed Poison / Rage Cured-Damage Math, Charge & `Shield of Justice`**: Properly undoes native `CalcSkillDamage` status modifiers (`0.70x` Phys-only Poison, `2.0x` Rage) during cured-ally projection, adds multi-round Poison bleed valuation in `Act Freely`, excludes fixed-power / percent-HP skills from Power/Mind Charge math, and skips redundant Guarding while `Shield of Justice` is active.
-- **Efficiency, Lifecycle & Smaller Package**: Eliminated duplicate `BuildTeamContext` passes per turn, reduced hot-path allocations (`Dictionary`/`HashSet`/LINQ) in `OffenseEvaluator` and `TeamOffenseEstimator`, disposed `FileSystemWatcher` cleanly, and quantized `Preview.png` (~64% smaller icon).
-- **Verified**: `66/66` xUnit tests passing, `0` warnings / `0` errors on Release build.
+- **Fixed Per-Ailment Affinity Slot & Out-of-Bounds Reveal Bug**: Resolves each ailment skill's true `UNIT.TBL` / `SKILL.TBL` slot (`8=Confuse` .. `15=Silence`) instead of hardcoding slot `12`, and removes out-of-bounds `IsAffinityRevealed(..., >= 8)` calls (verified at `P4G.exe` `0x0A8AD0`). Fixes party members spamming blocked ailments (e.g. `Tentarafoo`) into Golden Hands.
+- **Fixed `Hama`/`Mudo` Instant-Kill Valuation**: Uses `SKILL.TBL` `BaseAilmentChance` (`Mudo = 25%`, `Mudoon = 60%`, etc.), zeros out known `Resist` targets, and keeps unrevealed Light/Dark casts conservative so low-odds `Mudo` doesn't spam over reliable attacks on unanalyzed high-HP/resistant targets like `Treasure Hand`.
+- **Fixed Multi-Turn Boss Telegraph Guarding (`battle/enemy.bf` audit)**:
+  - **Shadow Teddie (`#261`)**: No longer guards for 3 rounds straight during `Nullity Guidance` (`364`) and `Ultra Charge` (`363` / `bit 448`); guards only on the final `Wait 169` / `bit 458` telegraph before `Nihil Hand` (while normal `Mind Charge` still protects Ice weaknesses).
+  - **Ameno-sagiri (`#266`)**: Suppresses premature Mind-Charge guards during Bewildering Fog buff turns (`bit 451 && !bit 455`) and triggers mandatory `MustGuardUltimate` on `bit 455` right before `Nebula Oculus`.
+  - **Shadow Naoto (`#263`)**: Checks completion bits `456..459` alongside `452..455` so allies don't stay stuck Guarding after Mute Ray's follow-up already fired.
+- **Verified**: `69/69` xUnit tests passing, `0` warnings / `0` errors on Release build.
 
 ## AI Assistance Disclosure
 - **AI Coding Assistant**: C# coding, refactoring, and automated unit tests were heavily assisted by **Gemini 4 Neon** ([Google Gemini](https://gemini.google.com/) via Google Antigravity).

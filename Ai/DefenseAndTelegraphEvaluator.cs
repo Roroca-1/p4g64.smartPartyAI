@@ -32,7 +32,26 @@ internal sealed class DefenseAndTelegraphEvaluator
         foreach (var enemy in livingEnemies)
         {
             bool isBoss = AiCombatHelpers.IsLikelyBossOrMiniboss(enemy);
-            if (enemy.HasMindCharge)
+            bool waitActive = !enemy.IsDown && !enemy.HasLossOfControl && enemy.LastActionType is 0 or 7;
+            bool skillFresh = !enemy.IsDown && enemy.LastActionType is 0 or 2;
+
+            // Verified in battle/enemy.bf (enemyAI_d_kuma): Shadow Teddie's Nihil Hand sequence is
+            // Nullity Guidance (364, sets Mind Charge) -> Ultra Charge (363, sets bit 448) -> Wait 169 (sets bit 458) -> Nihil Hand (362).
+            // During the first two windup steps he will NOT attack next turn; suppress premature Mind-Charge / Ice guards until bit 458 / Wait 169.
+            bool teddieFinalTelegraph = enemy.UnitOrEnemyId == 261 &&
+                ((waitActive && enemy.WaitMessageId == 169) || battle.ActiveBattleBits.Contains(458));
+            bool teddieSafeWindup = enemy.UnitOrEnemyId == 261 && !teddieFinalTelegraph &&
+                ((skillFresh && enemy.LastSkillId is 363 or 364) || battle.ActiveBattleBits.Contains(448));
+
+            // Verified in battle/enemy.bf (AI_mist_ON): Ameno-sagiri's Bewildering Fog (bit 451) sequence is
+            // Mind Charge (bit 452) -> Sukukaja (bit 453) -> Tarukaja (bit 454) -> Fog clears (bit 455) -> Nebula Oculus (381).
+            // He will NOT attack while bit 451 is active and bit 455 is not yet set; guard only on bit 455!
+            bool amenoFinalTelegraph = enemy.UnitOrEnemyId == 266 &&
+                (battle.ActiveBattleBits.Contains(455) || (waitActive && enemy.WaitMessageId != 0));
+            bool amenoFogWindup = enemy.UnitOrEnemyId == 266 && !amenoFinalTelegraph &&
+                battle.ActiveBattleBits.Contains(451);
+
+            if (enemy.HasMindCharge && !teddieSafeWindup && !amenoFogWindup)
             {
                 info.AnyEnemyMindCharged = true;
                 if (isBoss)
@@ -44,9 +63,6 @@ internal sealed class DefenseAndTelegraphEvaluator
                 if (isBoss)
                     info.AnyBossPowerCharged = true;
             }
-
-            bool waitActive = !enemy.IsDown && !enemy.HasLossOfControl && enemy.LastActionType is 0 or 7;
-            bool skillFresh = !enemy.IsDown && enemy.LastActionType is 0 or 2;
 
             // Only Kusumi-no-Okami (276) / Marie (277) uses wait message 209 ("Marie's ego is struggling for control!").
             if (waitActive && enemy.WaitMessageId == 209 && enemy.UnitOrEnemyId is 276 or 277)
@@ -84,10 +100,10 @@ internal sealed class DefenseAndTelegraphEvaluator
                     break;
                 }
 
-                case 261: // Shadow Teddie (Nihil Hand vs Mind Charge Mabufula)
-                    if ((waitActive && enemy.WaitMessageId == 169) || battle.ActiveBattleBits.Contains(458))
+                case 261: // Shadow Teddie (Nihil Hand vs Mind Charge Mabufula/Bufudyne)
+                    if (teddieFinalTelegraph)
                         info.MustGuardUltimate = true;
-                    else if (enemy.HasMindCharge)
+                    else if (enemy.HasMindCharge && !teddieSafeWindup)
                         info.TelegraphedElements.Add(ElementId.Ice);
                     break;
 
@@ -104,14 +120,14 @@ internal sealed class DefenseAndTelegraphEvaluator
                         info.TelegraphedElements.Add(ElementId.Elec);
                     break;
 
-                case 263: // Shadow Naoto (Mute Ray bitflags 452..455)
-                    if (battle.ActiveBattleBits.Contains(452))
+                case 263: // Shadow Naoto (AI_naoto_COMBO: bits 452..455 are never cleared; completion flags are 456..459)
+                    if (battle.ActiveBattleBits.Contains(452) && !battle.ActiveBattleBits.Contains(456))
                         info.TelegraphedElements.Add(ElementId.Fire);
-                    if (battle.ActiveBattleBits.Contains(453))
+                    if (battle.ActiveBattleBits.Contains(453) && !battle.ActiveBattleBits.Contains(457))
                         info.TelegraphedElements.Add(ElementId.Ice);
-                    if (battle.ActiveBattleBits.Contains(454))
+                    if (battle.ActiveBattleBits.Contains(454) && !battle.ActiveBattleBits.Contains(458))
                         info.TelegraphedElements.Add(ElementId.Elec);
-                    if (battle.ActiveBattleBits.Contains(455))
+                    if (battle.ActiveBattleBits.Contains(455) && !battle.ActiveBattleBits.Contains(459))
                         info.TelegraphedElements.Add(ElementId.Wind);
                     break;
 
@@ -126,8 +142,8 @@ internal sealed class DefenseAndTelegraphEvaluator
                         info.TelegraphedElements.Add(ElementId.Elec);
                     break;
 
-                case 266: // Ameno-sagiri (beware Skill 384 = Bewildering Fog itself; only guard true wait telegraphs)
-                    if (waitActive && enemy.WaitMessageId != 0)
+                case 266: // Ameno-sagiri (AI_mist_ON: bit 455 = fog cleared, Nebula Oculus lands next turn)
+                    if (amenoFinalTelegraph)
                         info.MustGuardUltimate = true;
                     break;
             }

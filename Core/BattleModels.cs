@@ -330,6 +330,30 @@ public interface IBattleEngineBridge
         (target.MaxHp >= 500 || SkillCatalog.IsKnownBossUnitId(target.UnitOrEnemyId))
             ? new AffinityInfo { IsNull = true, IsRevealed = true, MultiplierPercent = 0 }
             : new AffinityInfo { IsRevealed = true, MultiplierPercent = 100 };
+    AffinityInfo QueryAilmentAffinity(CombatantSnapshot actor, CombatantSnapshot target, SkillMetadata skill, bool respectAnalysis) =>
+        QueryAilmentAffinity(actor, target, respectAnalysis);
+
+    /// <summary>
+    /// Maps an ailment skill to its P4G UNIT.TBL affinity element slot (8..15), verified against SKILL.TBL and P4G.exe:
+    /// 8=Confuse(0x10), 9=Poison(0x20), 10=Fear(0x04), 11=Rage(0x02), 12=Dizzy(0x40000), 13=Exhaust(0x40), 14=Enervate(0x80), 15=Silence(0x08).
+    /// </summary>
+    static short ResolveAilmentAffinitySlot(SkillMetadata skill)
+    {
+        byte elem = (byte)skill.Element;
+        if (elem is >= 8 and <= 15)
+            return elem;
+
+        uint mask = skill.AilmentMask;
+        if ((mask & 0x10u) != 0) return 8;      // Confuse
+        if ((mask & 0x20u) != 0) return 9;      // Poison
+        if ((mask & 0x04u) != 0) return 10;     // Fear
+        if ((mask & 0x02u) != 0) return 11;     // Rage
+        if ((mask & 0x40000u) != 0) return 12;  // Dizzy
+        if ((mask & 0x40u) != 0) return 13;     // Exhaust
+        if ((mask & 0x80u) != 0) return 14;     // Enervate
+        if ((mask & 0x08u) != 0) return 15;     // Silence
+        return 12;
+    }
     double EstimateSingleHitDamage(ushort skillId, CombatantSnapshot attacker, CombatantSnapshot target, AffinityInfo effectiveAffinity, bool assumeChargedOverride, bool assumeUnchargedOverride, bool respectAnalysis);
     bool IsKnownWeakness(CombatantSnapshot target, ElementId element, AffinityInfo aff);
     /// <summary>
